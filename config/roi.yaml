@@ -1,0 +1,12 @@
+roi_polygon:
+  - [100, 100]
+  - [1180, 100]
+  - [1180, 680]
+  - [100, 680]
+entry_line:
+  p1: [250, 420]
+  p2: [1050, 420]
+morning_window:
+  start: "04:00"
+  end: "11:30"
+snapshot_retention_days: 7

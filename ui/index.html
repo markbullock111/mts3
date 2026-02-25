@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Offline Attendance Admin</title>
+  <link rel="stylesheet" href="/ui/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Offline Attendance Admin</h1>
+      <p>Single-entrance morning check-in (offline local server)</p>
+    </div>
+    <div class="health" id="healthBadge">Checking backend...</div>
+  </header>
+
+  <nav class="tabs">
+    <button data-tab="employees" class="active">Employees</button>
+    <button data-tab="employee-details">Employee Details</button>
+    <button data-tab="enrollment">Enrollment</button>
+    <button data-tab="attendance">Attendance</button>
+    <button data-tab="unknowns">Unknown Review</button>
+    <button data-tab="settings">Settings</button>
+  </nav>
+
+  <main>
+    <section id="tab-employees" class="tab active">
+      <div class="card">
+        <h2>Add Employee</h2>
+        <form id="employeeForm" class="grid-form">
+          <label>Full Name <input name="full_name" required /></label>
+          <label>Employee Code <input name="employee_code" required /></label>
+          <label>Birth <input type="date" name="birth_date" /></label>
+          <label>Job <input name="job_title" placeholder="Operator / Staff / Security" /></label>
+          <label class="full">Address <textarea name="address" rows="2" placeholder="Home address"></textarea></label>
+          <label>Status
+            <select name="status">
+              <option value="active">active</option>
+              <option value="inactive">inactive</option>
+            </select>
+          </label>
+          <button type="submit">Add</button>
+        </form>
+      </div>
+      <div class="card">
+        <div class="row-between">
+          <h2>Employees</h2>
+          <button id="refreshEmployeesBtn">Refresh</button>
+        </div>
+        <table id="employeesTable">
+          <thead>
+            <tr>
+              <th>ID</th><th>Code</th><th>Name</th><th>Birth</th><th>Job</th><th>Status</th><th>Face</th><th>ReID</th><th>Photos</th><th>Details</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="tab-employee-details" class="tab">
+      <div class="card">
+        <div class="row-between wrap">
+          <h2>Employee Details</h2>
+          <div class="controls">
+            <label>Employee ID <input type="number" id="detailEmployeeIdInput" min="1" placeholder="Select from Employees tab" /></label>
+            <button id="loadEmployeeDetailBtn">Load</button>
+          </div>
+        </div>
+        <p id="employeeDetailHint" class="hint">Select an employee from the Employees table or enter an ID.</p>
+      </div>
+
+      <div class="card">
+        <div class="row-between wrap">
+          <h2 id="employeeDetailTitle">Profile</h2>
+          <div id="employeeDetailCounts" class="muted"></div>
+        </div>
+        <form id="employeeDetailForm" class="grid-form">
+          <input type="hidden" name="id" />
+          <label>Full Name <input name="full_name" required /></label>
+          <label>Employee Code <input name="employee_code" readonly /></label>
+          <label>Birth <input type="date" name="birth_date" /></label>
+          <label>Job <input name="job_title" /></label>
+          <label>Status
+            <select name="status">
+              <option value="active">active</option>
+              <option value="inactive">inactive</option>
+            </select>
+          </label>
+          <label class="full">Address <textarea name="address" rows="3"></textarea></label>
+          <button type="submit">Save Profile</button>
+        </form>
+        <pre id="employeeDetailResult" class="output"></pre>
+      </div>
+
+      <div class="card">
+        <div class="row-between wrap">
+          <h2>Entrance Time History</h2>
+          <div class="controls">
+            <label>From <input type="date" id="employeeHistoryDateFrom" /></label>
+            <label>To <input type="date" id="employeeHistoryDateTo" /></label>
+            <button id="loadEmployeeHistoryBtn">Load History</button>
+          </div>
+        </div>
+        <p class="hint">Defaults to this week. Change dates to view previous attendance history.</p>
+        <table id="employeeHistoryTable">
+          <thead>
+            <tr>
+              <th>ID</th><th>Time (UTC)</th><th>Method</th><th>Conf</th><th>Camera</th><th>Track</th><th>Snapshot</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="row-between wrap">
+          <h2>Uploaded Pictures</h2>
+          <div id="employeePhotosSummary" class="muted"></div>
+        </div>
+        <div id="employeePhotoGrid" class="photo-grid"></div>
+      </div>
+    </section>
+
+    <section id="tab-enrollment" class="tab">
+      <div class="card">
+        <h2>Enrollment Workflow</h2>
+        <form id="faceEnrollForm" class="grid-form">
+          <label>Employee ID <input type="number" name="employee_id" min="1" required /></label>
+          <label>Mode
+            <select name="kind">
+              <option value="face">Face</option>
+              <option value="reid">ReID</option>
+            </select>
+          </label>
+          <label class="full">Upload Photos <input type="file" name="files" accept="image/*" multiple required /></label>
+          <button type="submit">Upload Enrollment Images</button>
+        </form>
+        <p class="hint">Face enrollment: upload at least 5 photos per employee (different angles/lighting, masks/helmets optional).</p>
+        <p class="hint">Optional live enroll capture mode: run inference with <code>--enroll-employee-id &lt;ID&gt; --enroll-kind face|reid</code>.</p>
+        <pre id="enrollResult" class="output"></pre>
+      </div>
+    </section>
+
+    <section id="tab-attendance" class="tab">
+      <div class="card">
+        <div class="row-between wrap">
+          <h2>Attendance Dashboard</h2>
+          <div class="controls">
+            <label>Date <input type="date" id="eventsDate" /></label>
+            <button id="loadEventsBtn">Load</button>
+            <button id="exportCsvBtn">Export CSV</button>
+          </div>
+        </div>
+        <p class="hint">Daily summary table shows all employees and their first entrance time for the selected date (today by default).</p>
+        <div class="row-between wrap">
+          <h3 id="attendanceSummaryTitle">Employee Entrance Summary</h3>
+          <div class="controls">
+            <label>Sort By
+              <select id="attendanceSummarySortBy">
+                <option value="name">Name</option>
+                <option value="time">Time</option>
+              </select>
+            </label>
+            <label>Order
+              <select id="attendanceSummarySortDir">
+                <option value="asc">Asc</option>
+                <option value="desc">Desc</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <table id="attendanceSummaryTable">
+          <thead>
+            <tr>
+              <th>Name</th><th>Code</th><th>Entrance Time (UTC)</th><th>Method</th><th>Confidence</th><th>Status</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <div class="row-between wrap">
+          <h2>Raw Events (Selected Date)</h2>
+        </div>
+        <table id="eventsTable">
+          <thead>
+            <tr>
+              <th>ID</th><th>Time (UTC)</th><th>Employee</th><th>Code</th><th>Method</th><th>Conf</th><th>Camera</th><th>Track</th><th>Image</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="tab-unknowns" class="tab">
+      <div class="card">
+        <div class="row-between wrap">
+          <h2>Unknown Events Review</h2>
+          <div class="controls">
+            <label>Date <input type="date" id="unknownDate" /></label>
+            <button id="loadUnknownsBtn">Load Unknowns</button>
+          </div>
+        </div>
+        <table id="unknownsTable">
+          <thead>
+            <tr>
+              <th>ID</th><th>Time</th><th>Method</th><th>Conf</th><th>Track</th><th>Assign Employee ID</th><th>Action</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="tab-settings" class="tab">
+      <div class="card">
+        <div class="row-between">
+          <h2>Settings</h2>
+          <button id="reloadSettingsBtn">Reload</button>
+        </div>
+        <form id="settingsForm" class="grid-form">
+          <label>Face Threshold <input type="number" step="0.01" name="face_threshold" /></label>
+          <label>ReID Threshold <input type="number" step="0.01" name="reid_threshold" /></label>
+          <label>Morning Start <input type="time" name="morning_window_start" /></label>
+          <label>Morning End <input type="time" name="morning_window_end" /></label>
+          <label>Snapshot Retention Days <input type="number" min="0" name="snapshot_retention_days" /></label>
+          <label>Save Snapshots Default
+            <select name="save_snapshots_default">
+              <option value="false">false</option>
+              <option value="true">true</option>
+            </select>
+          </label>
+          <label class="full">ROI Polygon (JSON)
+            <textarea name="roi_polygon" rows="4"></textarea>
+          </label>
+          <label class="full">Entry Line (JSON)
+            <textarea name="entry_line" rows="3"></textarea>
+          </label>
+          <button type="submit">Save Settings</button>
+        </form>
+        <pre id="settingsResult" class="output"></pre>
+      </div>
+    </section>
+  </main>
+
+  <script src="/ui/app.js"></script>
+</body>
+</html>

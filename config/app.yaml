@@ -1,0 +1,19 @@
+backend:
+  host: 127.0.0.1
+  port: 8000
+inference:
+  camera_id: entrance-1
+  yolo_model: models/yolo/yolov8n.pt
+  face_model_dir: models/insightface
+  face_model_name: buffalo_l
+  reid_model_path: models/reid/mobilenet_v3_small-047dcff4.pth
+  use_gpu_if_available: true
+  face_threshold: 0.42
+  reid_threshold: 0.78
+  face_top_k_frames: 3
+  face_buffer_size: 12
+  gallery_refresh_seconds: 30
+  snapshot_dir: data/snapshots
+  save_snapshots_default: false
+  line_cross_direction: into_roi
+  min_box_area: 2500

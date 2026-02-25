@@ -1,0 +1,296 @@
+from __future__ import annotations
+
+import os
+import time
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+import cv2
+import numpy as np
+
+from .backend_client import BackendClient
+from .camera import VideoSource
+from .config import RuntimeConfig
+from .event_logic import DailyFirstCheckInDeduper, is_within_morning_window
+from .face_recognizer import FaceRecognizer, FaceTrackBuffer
+from .gallery_sync import GallerySyncService
+from .geometry import crossed_entry_line, point_in_polygon
+from .reid_recognizer import BodyTrackBuffer, ReIDRecognizer
+from .tracker import Detection, Track, build_tracker
+from .detector import YOLOPersonDetector
+
+
+@dataclass
+class TrackMemory:
+    track_id: int
+    first_seen_ts: float
+    last_seen_ts: float
+    last_center: tuple[float, float] | None = None
+    current_center: tuple[float, float] | None = None
+    face_buffer: FaceTrackBuffer = field(default_factory=lambda: FaceTrackBuffer(max_items=12))
+    body_buffer: BodyTrackBuffer = field(default_factory=lambda: BodyTrackBuffer(max_items=8))
+    crossed: bool = False
+    finalized: bool = False
+    posted: bool = False
+
+
+class AttendancePipeline:
+    def __init__(
+        self,
+        cfg: RuntimeConfig,
+        backend_url: str,
+        camera_source: str | int,
+        show: bool = False,
+        save_snapshots: bool | None = None,
+        enroll_employee_id: int | None = None,
+        enroll_kind: str = "face",
+    ):
+        self.cfg = cfg
+        self.backend = BackendClient(backend_url)
+        self.camera = VideoSource(camera_source)
+        self.show = show
+        self.save_snapshots = cfg.inference.save_snapshots_default if save_snapshots is None else bool(save_snapshots)
+        self.snapshot_dir = cfg.repo_root / cfg.inference.snapshot_dir
+        if self.save_snapshots:
+            self.snapshot_dir.mkdir(parents=True, exist_ok=True)
+        self.enroll_employee_id = enroll_employee_id
+        self.enroll_kind = enroll_kind
+        self._last_enroll_upload = 0.0
+
+        device = "0" if (cfg.inference.use_gpu_if_available and self._torch_cuda()) else None
+        self.detector = YOLOPersonDetector(cfg.repo_root / cfg.inference.yolo_model, device=device, conf=0.25)
+        self.tracker = build_tracker(prefer_bytetrack=True, fps=30)
+        self.face_recognizer = FaceRecognizer(
+            cfg.repo_root / cfg.inference.face_model_dir,
+            model_name=cfg.inference.face_model_name,
+            use_gpu=cfg.inference.use_gpu_if_available,
+        )
+        reid_device = "cuda" if cfg.inference.use_gpu_if_available and self._torch_cuda() else "cpu"
+        self.reid_recognizer = ReIDRecognizer(cfg.repo_root / cfg.inference.reid_model_path, device=reid_device)
+        self.gallery = GallerySyncService(self.backend, refresh_seconds=cfg.inference.gallery_refresh_seconds)
+        self.track_mem: dict[int, TrackMemory] = {}
+        self.runtime_dedup = DailyFirstCheckInDeduper()
+        self.camera_id = cfg.inference.camera_id
+
+    @staticmethod
+    def _torch_cuda() -> bool:
+        try:
+            import torch
+
+            return bool(torch.cuda.is_available())
+        except Exception:
+            return False
+
+    def run(self) -> None:
+        self.gallery.start()
+        fps_hist: list[float] = []
+        try:
+            while True:
+                t0 = time.perf_counter()
+                packet = self.camera.read()
+                if packet is None:
+                    time.sleep(0.05)
+                    continue
+                frame = packet.frame
+                now_ts = time.time()
+                detections = self.detector.detect(frame)
+                detections = [d for d in detections if self._bbox_area(d.bbox) >= self.cfg.inference.min_box_area]
+                tracks = self.tracker.update(detections, frame)
+                self._update_track_buffers(frame, tracks, packet.ts_ms, now_ts)
+
+                if self.enroll_employee_id is not None:
+                    self._maybe_enroll(frame, tracks)
+                else:
+                    self._finalize_crossed_tracks(frame, packet.ts_ms)
+
+                self._cleanup_tracks(now_ts)
+                dt = time.perf_counter() - t0
+                if dt > 0:
+                    fps_hist.append(1.0 / dt)
+                    if len(fps_hist) > 30:
+                        fps_hist.pop(0)
+                if self.show:
+                    self._draw_overlays(frame, tracks, fps=float(sum(fps_hist) / max(1, len(fps_hist))))
+                    cv2.imshow("attendance", frame)
+                    key = cv2.waitKey(1) & 0xFF
+                    if key in (27, ord("q")):
+                        break
+        finally:
+            self.gallery.stop()
+            self.camera.release()
+            if self.show:
+                cv2.destroyAllWindows()
+
+    @staticmethod
+    def _bbox_area(bbox: tuple[float, float, float, float]) -> float:
+        x1, y1, x2, y2 = bbox
+        return max(0.0, x2 - x1) * max(0.0, y2 - y1)
+
+    def _crop(self, frame: np.ndarray, bbox: tuple[float, float, float, float]) -> np.ndarray:
+        h, w = frame.shape[:2]
+        x1, y1, x2, y2 = [int(v) for v in bbox]
+        x1 = max(0, min(w - 1, x1))
+        y1 = max(0, min(h - 1, y1))
+        x2 = max(0, min(w, x2))
+        y2 = max(0, min(h, y2))
+        if x2 <= x1 or y2 <= y1:
+            return np.empty((0, 0, 3), dtype=np.uint8)
+        return frame[y1:y2, x1:x2]
+
+    def _update_track_buffers(self, frame: np.ndarray, tracks: list[Track], ts_ms: int, now_ts: float) -> None:
+        for tr in tracks:
+            mem = self.track_mem.get(tr.track_id)
+            if mem is None:
+                mem = TrackMemory(track_id=tr.track_id, first_seen_ts=now_ts, last_seen_ts=now_ts)
+                mem.face_buffer = FaceTrackBuffer(max_items=self.cfg.inference.face_buffer_size)
+                self.track_mem[tr.track_id] = mem
+            mem.last_seen_ts = now_ts
+            mem.last_center = mem.current_center
+            mem.current_center = tr.center
+
+            person_crop = self._crop(frame, tr.bbox)
+            if person_crop.size == 0:
+                continue
+            mem.body_buffer.add(person_crop, ts_ms)
+            try:
+                self.face_recognizer.add_best_face_from_person_crop(person_crop, mem.face_buffer, ts_ms)
+            except Exception:
+                pass
+
+            if not mem.crossed and mem.last_center is not None and mem.current_center is not None:
+                if crossed_entry_line(
+                    mem.last_center,
+                    mem.current_center,
+                    self.cfg.roi.entry_line_p1,
+                    self.cfg.roi.entry_line_p2,
+                    self.cfg.roi.roi_polygon,
+                ):
+                    mem.crossed = True
+
+    def _finalize_crossed_tracks(self, frame: np.ndarray, ts_ms: int) -> None:
+        state = self.gallery.get_state()
+        for trk_id, mem in list(self.track_mem.items()):
+            if mem.finalized or not mem.crossed:
+                continue
+            if state.face_matcher is None or state.reid_matcher is None:
+                continue
+            employee_id = None
+            method = "unknown"
+            confidence = 0.0
+
+            face_match = None
+            try:
+                face_match = self.face_recognizer.identify_from_buffer(
+                    mem.face_buffer,
+                    state.face_matcher,
+                    threshold=self.cfg.inference.face_threshold,
+                    top_k_frames=self.cfg.inference.face_top_k_frames,
+                )
+            except Exception:
+                face_match = None
+
+            if face_match is not None:
+                employee_id = face_match.employee_id
+                method = "face"
+                confidence = float(face_match.score)
+            else:
+                try:
+                    reid_match = self.reid_recognizer.identify_from_buffer(
+                        mem.body_buffer,
+                        state.reid_matcher,
+                        threshold=self.cfg.inference.reid_threshold,
+                        top_k_frames=3,
+                    )
+                except Exception:
+                    reid_match = None
+                if reid_match is not None:
+                    employee_id = reid_match.employee_id
+                    method = "reid"
+                    confidence = float(reid_match.score)
+
+            event_ts = datetime.now(timezone.utc)
+            if employee_id is not None:
+                d = self.runtime_dedup.consider(employee_id, event_ts)
+                if not d.keep_new:
+                    mem.finalized = True
+                    continue
+
+            snap_path = None
+            if self.save_snapshots:
+                snap_path = self._save_snapshot(frame, trk_id, method, event_ts)
+
+            payload = {
+                "employee_id": employee_id,
+                "ts": event_ts.isoformat(),
+                "method": method,
+                "confidence": float(max(0.0, min(1.0, confidence))),
+                "camera_id": self.camera_id,
+                "track_uid": f"{self.camera_id}-{trk_id}-{int(mem.first_seen_ts * 1000)}",
+                "image_path": snap_path,
+                "meta": {
+                    "inside_morning_window": is_within_morning_window(
+                        event_ts,
+                        self.cfg.roi.morning_window_start,
+                        self.cfg.roi.morning_window_end,
+                    )
+                },
+            }
+            try:
+                self.backend.post_event(payload)
+                mem.posted = True
+            except Exception:
+                # leave finalized to avoid spamming duplicate posts; backend dedup still protects
+                mem.posted = False
+            mem.finalized = True
+
+    def _save_snapshot(self, frame: np.ndarray, track_id: int, method: str, ts: datetime) -> str | None:
+        try:
+            day_dir = self.snapshot_dir / ts.strftime("%Y-%m-%d")
+            day_dir.mkdir(parents=True, exist_ok=True)
+            fname = f"{ts.strftime('%H%M%S')}_{self.camera_id}_{track_id}_{method}.jpg"
+            path = day_dir / fname
+            cv2.imwrite(str(path), frame)
+            return str(path)
+        except Exception:
+            return None
+
+    def _cleanup_tracks(self, now_ts: float) -> None:
+        stale_ids = [tid for tid, mem in self.track_mem.items() if now_ts - mem.last_seen_ts > 4.0]
+        for tid in stale_ids:
+            self.track_mem.pop(tid, None)
+
+    def _draw_overlays(self, frame: np.ndarray, tracks: list[Track], fps: float) -> None:
+        poly = np.array(self.cfg.roi.roi_polygon, dtype=np.int32)
+        cv2.polylines(frame, [poly], isClosed=True, color=(0, 255, 255), thickness=2)
+        p1 = tuple(int(v) for v in self.cfg.roi.entry_line_p1)
+        p2 = tuple(int(v) for v in self.cfg.roi.entry_line_p2)
+        cv2.line(frame, p1, p2, (255, 0, 255), 2)
+        for tr in tracks:
+            x1, y1, x2, y2 = [int(v) for v in tr.bbox]
+            mem = self.track_mem.get(tr.track_id)
+            color = (0, 255, 0) if mem and mem.crossed else (255, 200, 0)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+            label = f"ID {tr.track_id} {tr.conf:.2f}"
+            if mem and mem.finalized:
+                label += " [posted]" if mem.posted else " [finalized]"
+            cv2.putText(frame, label, (x1, max(20, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+        cv2.putText(frame, f"FPS {fps:.1f}", (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+
+    def _maybe_enroll(self, frame: np.ndarray, tracks: list[Track]) -> None:
+        now = time.time()
+        if now - self._last_enroll_upload < 1.5:
+            return
+        if not tracks:
+            return
+        best = max(tracks, key=lambda t: self._bbox_area(t.bbox))
+        crop = self._crop(frame, best.bbox)
+        if crop.size == 0:
+            return
+        image = frame if self.enroll_kind == "face" else crop
+        try:
+            self.backend.upload_enroll_frame(self.enroll_employee_id or 0, self.enroll_kind, image)
+            self._last_enroll_upload = now
+        except Exception:
+            pass
