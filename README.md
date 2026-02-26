@@ -2,6 +2,8 @@
 
 Offline attendance system for a single entrance using YOLO person detection, tracking, InsightFace face recognition, and ReID fallback. Designed for Windows 10/11 with a local PC acting as server.
 
+Python target: `3.13` (supported via version-specific dependency pins in `requirements-base.txt`).
+
 ## Repo Layout
 - `backend/` FastAPI + PostgreSQL + Alembic + static UI serving
 - `inference/` Camera pipeline (RTSP/webcam) and recognition pipeline

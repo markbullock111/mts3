@@ -5,7 +5,7 @@ This guide installs and runs the attendance system on Windows 10/11 using a loca
 ## 1) Prerequisites
 
 - Windows 10 or 11
-- Python 3.10+ (3.10/3.11 recommended)
+- Python 3.13 (recommended). Python 3.10+ still works, but this repo now includes Python-version-specific pins for 3.13.
 - PostgreSQL 14+ installed locally
 - Visual C++ Build Tools may be needed for some Python packages on some machines
 - Optional NVIDIA GPU (for faster inference)
@@ -32,7 +32,7 @@ If your password is not `postgres`, update `.env` with your local Postgres crede
 
 ### A. CPU-only install (PowerShell)
 ```powershell
-python -m venv .venv
+py -3.13 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip setuptools wheel
 pip install -r requirements-cpu.txt
@@ -40,7 +40,7 @@ pip install -r requirements-cpu.txt
 
 ### A. CPU-only install (cmd.exe)
 ```cmd
-python -m venv .venv
+py -3.13 -m venv .venv
 .venv\Scripts\activate.bat
 python -m pip install --upgrade pip setuptools wheel
 pip install -r requirements-cpu.txt
@@ -48,7 +48,7 @@ pip install -r requirements-cpu.txt
 
 ### B. NVIDIA GPU install (PowerShell)
 ```powershell
-python -m venv .venv
+py -3.13 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip setuptools wheel
 pip install -r requirements-base.txt
@@ -58,7 +58,7 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 
 ### B. NVIDIA GPU install (cmd.exe)
 ```cmd
-python -m venv .venv
+py -3.13 -m venv .venv
 .venv\Scripts\activate.bat
 python -m pip install --upgrade pip setuptools wheel
 pip install -r requirements-base.txt
@@ -70,6 +70,7 @@ Notes:
 - If your CUDA runtime/driver differs, install the matching PyTorch wheel from the official PyTorch index.
 - `insightface` uses `onnxruntime` / `onnxruntime-gpu` providers depending on availability.
 - Default ReID fallback model is a lightweight Torch MobileNetV3 embedding model (\"OSNet or similar\" requirement).
+- `requirements-base.txt` includes Python-version-specific pins so Python 3.13 uses a newer `numpy` and `torch/torchvision` pair automatically.
 
 ## 5) One-time model download (internet required only for this step)
 
@@ -244,6 +245,7 @@ Useful options:
 - `insightface` import/runtime errors:
   - Verify `onnxruntime` (CPU) or `onnxruntime-gpu` (GPU) is installed.
   - Confirm model files exist under `models\insightface\models\buffalo_l\`.
+  - `insightface` is distributed as source on PyPI; on some Windows/Python 3.13 setups you may need Visual C++ Build Tools.
 - GPU not used:
   - Check `torch.cuda.is_available()` in Python.
   - Ensure matching NVIDIA driver + CUDA-compatible PyTorch build.
