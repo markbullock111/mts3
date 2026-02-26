@@ -16,8 +16,10 @@ branch_labels = None
 depends_on = None
 
 
-employee_status = sa.Enum("active", "inactive", name="employee_status")
-attendance_method = sa.Enum("face", "reid", "unknown", name="attendance_method")
+# Use PostgreSQL ENUM with create_type=False because we create/drop explicitly with checkfirst=True.
+# This avoids duplicate CREATE TYPE when Alembic creates tables.
+employee_status = postgresql.ENUM("active", "inactive", name="employee_status", create_type=False)
+attendance_method = postgresql.ENUM("face", "reid", "unknown", name="attendance_method", create_type=False)
 
 
 def upgrade() -> None:
