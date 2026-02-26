@@ -1,6 +1,6 @@
 """employee profile fields and uploaded images
 
-Revision ID: 0002_employee_profile_and_uploaded_images
+Revision ID: 0002_emp_profile_imgs
 Revises: 0001_initial
 Create Date: 2026-02-25 12:00:00.000000
 """
@@ -9,7 +9,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0002_employee_profile_and_uploaded_images"
+revision = "0002_emp_profile_imgs"
 down_revision = "0001_initial"
 branch_labels = None
 depends_on = None

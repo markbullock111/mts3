@@ -124,6 +124,11 @@ button {
   cursor: pointer;
 }
 button:hover { filter: brightness(0.97); }
+button:disabled {
+  opacity: 0.65;
+  cursor: wait;
+  filter: none;
+}
 
 .hint {
   color: var(--muted);
@@ -141,6 +146,35 @@ button:hover { filter: brightness(0.97); }
   white-space: pre-wrap;
   word-break: break-word;
   min-height: 48px;
+}
+.upload-status {
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  background: #faf7f0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+.upload-status.hidden {
+  display: none;
+}
+.upload-status.active {
+  border-color: rgba(32, 78, 91, 0.25);
+  color: var(--accent-2);
+}
+.spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(32, 78, 91, 0.2);
+  border-top-color: var(--accent-2);
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 .grid-form input[readonly] {
   background: #f4f2ec;

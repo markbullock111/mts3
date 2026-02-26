@@ -44,10 +44,17 @@
         </form>
       </div>
       <div class="card">
-        <div class="row-between">
+        <div class="row-between wrap">
           <h2>Employees</h2>
-          <button id="refreshEmployeesBtn">Refresh</button>
+          <div class="controls">
+            <label>Search
+              <input id="employeesSearchInput" type="text" placeholder="Search by name / ID / code" />
+            </label>
+            <button id="clearEmployeesSearchBtn" type="button">Clear</button>
+            <button id="refreshEmployeesBtn" type="button">Refresh</button>
+          </div>
         </div>
+        <p class="hint">Search supports employee name, employee ID, or employee code.</p>
         <table id="employeesTable">
           <thead>
             <tr>
@@ -135,8 +142,13 @@
             </select>
           </label>
           <label class="full">Upload Photos <input type="file" name="files" accept="image/*" multiple required /></label>
-          <button type="submit">Upload Enrollment Images</button>
+          <button id="enrollSubmitBtn" type="submit">Upload Enrollment Images</button>
         </form>
+        <div id="enrollUploadStatus" class="upload-status hidden" aria-live="polite">
+          <span class="spinner" aria-hidden="true"></span>
+          <span id="enrollUploadStatusText">Uploading...</span>
+        </div>
+        <p id="enrollTargetInfo" class="hint">Employee ID will be shown during upload.</p>
         <p class="hint">Face enrollment: upload at least 5 photos per employee (different angles/lighting, masks/helmets optional).</p>
         <p class="hint">Optional live enroll capture mode: run inference with <code>--enroll-employee-id &lt;ID&gt; --enroll-kind face|reid</code>.</p>
         <pre id="enrollResult" class="output"></pre>

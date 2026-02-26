@@ -4,6 +4,7 @@ const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 const state = {
   selectedEmployeeId: null,
   employees: [],
+  employeesSearchQuery: '',
   attendanceSummaryRows: [],
 };
 
@@ -113,6 +114,22 @@ function eventRow(r) {
 async function loadEmployees() {
   const rows = await api('/employees');
   state.employees = rows;
+  renderEmployeesTable();
+}
+
+function getFilteredEmployees() {
+  const q = String(state.employeesSearchQuery || '').trim().toLowerCase();
+  if (!q) return [...(state.employees || [])];
+  return (state.employees || []).filter(r => {
+    const idStr = String(r.id ?? '').toLowerCase();
+    const code = String(r.employee_code ?? '').toLowerCase();
+    const name = String(r.full_name ?? '').toLowerCase();
+    return idStr.includes(q) || code.includes(q) || name.includes(q);
+  });
+}
+
+function renderEmployeesTable() {
+  const rows = getFilteredEmployees();
   const tbody = $('#employeesTable tbody');
   renderTableRows(
     tbody,
@@ -139,6 +156,12 @@ async function loadEmployees() {
       setSelectedEmployee(id, { openTab: true });
     });
   });
+
+  const hint = $('#employeeDetailHint');
+  const q = String(state.employeesSearchQuery || '').trim();
+  if (hint && q && !rows.length) {
+    hint.textContent = `No employees found for search: ${q}`;
+  }
 }
 
 async function ensureEmployeesLoaded() {
@@ -169,6 +192,15 @@ function bindEmployeeForm() {
     }
   });
   $('#refreshEmployeesBtn').addEventListener('click', () => loadEmployees().catch(err => alert(err.message)));
+  $('#employeesSearchInput').addEventListener('input', (e) => {
+    state.employeesSearchQuery = e.target.value || '';
+    renderEmployeesTable();
+  });
+  $('#clearEmployeesSearchBtn').addEventListener('click', () => {
+    state.employeesSearchQuery = '';
+    $('#employeesSearchInput').value = '';
+    renderEmployeesTable();
+  });
 }
 
 function bindEnrollmentForm() {
@@ -179,21 +211,54 @@ function bindEnrollmentForm() {
     const employeeId = fd.get('employee_id');
     const kind = fd.get('kind');
     const files = form.querySelector('input[name="files"]').files;
+    const submitBtn = $('#enrollSubmitBtn');
+    const statusWrap = $('#enrollUploadStatus');
+    const statusText = $('#enrollUploadStatusText');
+    const targetInfo = $('#enrollTargetInfo');
     if (!files.length) {
       alert('Select at least one image');
       return;
     }
     const upload = new FormData();
     for (const f of files) upload.append('files', f);
+    const employeeIdText = String(employeeId || '').trim();
+    const modeText = String(kind || '').toUpperCase();
+    if (targetInfo) {
+      targetInfo.textContent = `Target Employee ID: ${employeeIdText} | Mode: ${modeText} | Files: ${files.length}`;
+    }
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.dataset.originalText = submitBtn.dataset.originalText || submitBtn.textContent || 'Upload Enrollment Images';
+      submitBtn.textContent = 'Uploading...';
+    }
+    if (statusWrap && statusText) {
+      statusWrap.classList.remove('hidden');
+      statusWrap.classList.add('active');
+      statusText.textContent = `Uploading ${files.length} image(s) for Employee ID ${employeeIdText} (${modeText})...`;
+    }
+    $('#enrollResult').textContent = `Uploading to employee_id=${employeeIdText} (${modeText})...`;
     try {
       const data = await api(`/employees/${employeeId}/enroll/${kind}`, { method: 'POST', body: upload });
-      $('#enrollResult').textContent = JSON.stringify(data, null, 2);
+      $('#enrollResult').textContent = `Upload complete for employee_id=${employeeIdText} (${modeText})\\n` + JSON.stringify(data, null, 2);
       await loadEmployees();
       if (Number(employeeId) === state.selectedEmployeeId) {
         await loadEmployeeDetail(state.selectedEmployeeId);
       }
     } catch (err) {
-      $('#enrollResult').textContent = `ERROR: ${err.message}`;
+      $('#enrollResult').textContent = `ERROR uploading employee_id=${employeeIdText} (${modeText}): ${err.message}`;
+    } finally {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = submitBtn.dataset.originalText || 'Upload Enrollment Images';
+      }
+      if (statusWrap && statusText) {
+        statusText.textContent = `Idle`;
+        statusWrap.classList.remove('active');
+        // keep visible briefly to show state transition; then hide
+        window.setTimeout(() => {
+          statusWrap.classList.add('hidden');
+        }, 600);
+      }
     }
   });
 }
