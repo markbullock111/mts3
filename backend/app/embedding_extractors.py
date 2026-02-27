@@ -6,6 +6,7 @@ from typing import Iterable, List
 
 import cv2
 import numpy as np
+from inference.model_checks import validate_insightface_model_root
 
 try:
     from insightface.app import FaceAnalysis
@@ -32,10 +33,11 @@ class FaceEmbedder:
     def __init__(self, model_root: Path, model_name: str = "buffalo_l", use_gpu: bool = True):
         if FaceAnalysis is None:
             raise RuntimeError("insightface is not installed")
+        resolved_root = validate_insightface_model_root(model_root, model_name=model_name)
         providers = ["CPUExecutionProvider"]
         if use_gpu:
             providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
-        self.app = FaceAnalysis(name=model_name, root=str(model_root), providers=providers)
+        self.app = FaceAnalysis(name=model_name, root=str(resolved_root), providers=providers)
         ctx_id = 0 if use_gpu else -1
         self.app.prepare(ctx_id=ctx_id)
 

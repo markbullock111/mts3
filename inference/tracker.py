@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, List
 
 import numpy as np
@@ -115,24 +115,73 @@ class ByteTrackWrapper(TrackerBase):
         except Exception as exc:
             raise RuntimeError(f"ByteTrack unavailable: {exc}") from exc
 
+        high = float(track_thresh)
+        low = max(0.05, min(0.99, high * 0.5))
         args = SimpleNamespace(
-            track_thresh=track_thresh,
-            match_thresh=match_thresh,
+            # Newer ultralytics ByteTracker arg names
+            track_high_thresh=high,
+            track_low_thresh=low,
+            new_track_thresh=high,
+            match_thresh=float(match_thresh),
             track_buffer=30,
-            frame_rate=fps,
+            fuse_score=True,
             mot20=False,
-            conf=conf_thresh,
+            # Legacy compatibility keys used by older variants
+            track_thresh=high,
+            conf=float(conf_thresh),
+            frame_rate=fps,
         )
         self._BYTETracker = BYTETracker
         self._args = args
         self._tracker = BYTETracker(args, frame_rate=fps)
 
+    @staticmethod
+    def _xyxy_to_xywh(xyxy: np.ndarray) -> np.ndarray:
+        if xyxy.size == 0:
+            return np.empty((0, 4), dtype=np.float32)
+        x1 = xyxy[:, 0]
+        y1 = xyxy[:, 1]
+        x2 = xyxy[:, 2]
+        y2 = xyxy[:, 3]
+        w = x2 - x1
+        h = y2 - y1
+        cx = x1 + (w / 2.0)
+        cy = y1 + (h / 2.0)
+        return np.stack([cx, cy, w, h], axis=1).astype(np.float32)
+
+    @staticmethod
+    def _build_ultralytics_results_like(arr: np.ndarray):
+        # Newer ultralytics BYTETracker.update expects an object with .xywh/.conf/.cls attributes.
+        class _ResultsLike:
+            def __init__(self, xyxy: np.ndarray, conf: np.ndarray, cls: np.ndarray):
+                xyxy_arr = np.asarray(xyxy, dtype=np.float32)
+                if xyxy_arr.ndim == 1:
+                    xyxy_arr = xyxy_arr.reshape(1, -1)
+                self.xyxy = xyxy_arr[:, :4] if xyxy_arr.size else np.empty((0, 4), dtype=np.float32)
+                self.xywh = ByteTrackWrapper._xyxy_to_xywh(self.xyxy)
+                self.conf = np.asarray(conf, dtype=np.float32).reshape(-1)
+                self.cls = np.asarray(cls, dtype=np.float32).reshape(-1)
+
+            def __len__(self) -> int:
+                return int(self.conf.shape[0])
+
+            def __getitem__(self, idx):
+                return _ResultsLike(self.xyxy[idx], self.conf[idx], self.cls[idx])
+
+        xyxy = arr[:, :4] if arr.size else np.empty((0, 4), dtype=np.float32)
+        conf = arr[:, 4] if arr.size else np.empty((0,), dtype=np.float32)
+        cls = arr[:, 5] if arr.size else np.empty((0,), dtype=np.float32)
+        return _ResultsLike(xyxy=xyxy, conf=conf, cls=cls)
+
     def _update_internal(self, detections: list[Detection], frame: np.ndarray):
         # Try common BYTETracker signatures used across ultralytics/yolox variants.
         arr = np.array([[*d.bbox, d.conf, d.cls_id] for d in detections], dtype=np.float32) if detections else np.empty((0, 6), dtype=np.float32)
+        result_like = self._build_ultralytics_results_like(arr)
         h, w = frame.shape[:2]
         errors: list[Exception] = []
         for call in (
+            lambda: self._tracker.update(result_like, frame),
+            lambda: self._tracker.update(result_like),
             lambda: self._tracker.update(arr[:, :5], (h, w), (h, w)),
             lambda: self._tracker.update(arr[:, :5], frame),
             lambda: self._tracker.update(arr[:, :6], (h, w), (h, w)),
@@ -142,11 +191,36 @@ class ByteTrackWrapper(TrackerBase):
                 return call()
             except Exception as exc:
                 errors.append(exc)
-        raise RuntimeError(f"BYTETracker signature mismatch: {errors[-1] if errors else 'unknown'}")
+        msg = "; ".join(str(e) for e in errors[-3:]) if errors else "unknown"
+        raise RuntimeError(f"BYTETracker signature mismatch: {msg}")
 
     def update(self, detections: list[Detection], frame: np.ndarray) -> list[Track]:
         outputs = self._update_internal(detections, frame)
         tracks: list[Track] = []
+        if isinstance(outputs, np.ndarray):
+            rows = outputs.tolist()
+            for row in rows:
+                if len(row) < 5:
+                    continue
+                x1, y1, x2, y2 = [float(v) for v in row[:4]]
+                tid = int(row[4])
+                score = float(row[5]) if len(row) > 5 else 0.0
+                if tid < 0:
+                    continue
+                tracks.append(Track(track_id=tid, bbox=(x1, y1, x2, y2), conf=score))
+            return tracks
+        if isinstance(outputs, (list, tuple)) and outputs and isinstance(outputs[0], (list, tuple, np.ndarray)):
+            for row in outputs:
+                vals = list(row)
+                if len(vals) < 5:
+                    continue
+                x1, y1, x2, y2 = [float(v) for v in vals[:4]]
+                tid = int(vals[4])
+                score = float(vals[5]) if len(vals) > 5 else 0.0
+                if tid < 0:
+                    continue
+                tracks.append(Track(track_id=tid, bbox=(x1, y1, x2, y2), conf=score))
+            return tracks
         for obj in outputs or []:
             tid = int(getattr(obj, "track_id", getattr(obj, "id", -1)))
             tlbr = getattr(obj, "tlbr", None)
@@ -163,10 +237,27 @@ class ByteTrackWrapper(TrackerBase):
         return tracks
 
 
+class FallbackTracker(TrackerBase):
+    def __init__(self, primary: TrackerBase, fallback: TrackerBase):
+        self.primary = primary
+        self.fallback = fallback
+        self._using_fallback = False
+
+    def update(self, detections: list[Detection], frame: np.ndarray) -> list[Track]:
+        if self._using_fallback:
+            return self.fallback.update(detections, frame)
+        try:
+            return self.primary.update(detections, frame)
+        except Exception as exc:
+            print(f"[tracker] ByteTrack failed ({exc}); switching to IoU tracker.")
+            self._using_fallback = True
+            return self.fallback.update(detections, frame)
+
+
 def build_tracker(prefer_bytetrack: bool = True, **kwargs: Any) -> TrackerBase:
     if prefer_bytetrack:
         try:
-            return ByteTrackWrapper(**kwargs)
+            return FallbackTracker(primary=ByteTrackWrapper(**kwargs), fallback=IoUTracker())
         except Exception:
             pass
     return IoUTracker()

@@ -310,7 +310,16 @@ function bindCameras() {
   const form = $('#cameraForm');
   const refreshBtn = $('#refreshCamerasBtn');
   const stopBtn = $('#stopCameraPreviewBtn');
+  const previewImg = $('#cameraPreviewImg');
+  const previewHint = $('#cameraPreviewHint');
   if (!form || !refreshBtn) return;
+
+  if (previewImg && previewHint) {
+    previewImg.addEventListener('error', () => {
+      const id = previewImg.dataset.activeCameraId || '?';
+      previewHint.textContent = `Preview failed for Camera ID ${id}. Check camera source value, camera enabled flag, and backend logs.`;
+    });
+  }
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();

@@ -96,6 +96,7 @@ python scripts\download_models.py
 ```
 
 Model files are stored under `models/`. Runtime must remain offline after this step.
+If any required model file is missing, `python -m inference.run ...` now fails fast with a clear error and will not try to download anything.
 
 ## 6) Configure environment
 
@@ -153,6 +154,7 @@ UI notes:
 
 - `Employees` tab: add employee with `Full Name`, `Birth`, `Job`, `Address`
 - `Employee Details` tab: view/edit profile, see uploaded enrollment pictures, and view entrance-time history (defaults to this week, selectable date range)
+- `Cameras` tab `Camera Source` accepts RTSP URL (`rtsp://...`) or local webcam source (`webcam`, `webcam:0`, `0`, `1`)
 
 ## 9) Run inference
 

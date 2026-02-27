@@ -352,6 +352,67 @@ class CameraPreviewWorker:
         with self._lock:
             return self._latest_jpeg
 
+    @staticmethod
+    def _parse_camera_source(source: str) -> str | int:
+        src = str(source or "").strip()
+        low = src.lower()
+        if low in {"webcam", "camera", "cam"}:
+            return 0
+        if ":" in low:
+            prefix, idx = low.split(":", 1)
+            if prefix in {"webcam", "camera", "cam"}:
+                try:
+                    return int(idx.strip())
+                except Exception:
+                    return 0
+        if low.lstrip("-").isdigit():
+            try:
+                return int(low)
+            except Exception:
+                pass
+        return src
+
+    @staticmethod
+    def _open_capture(source: str | int) -> cv2.VideoCapture:
+        if isinstance(source, int):
+            if os.name == "nt":
+                for backend in (cv2.CAP_DSHOW, cv2.CAP_MSMF, None):
+                    cap = cv2.VideoCapture(source) if backend is None else cv2.VideoCapture(source, backend)
+                    if cap.isOpened():
+                        return cap
+                    cap.release()
+            return cv2.VideoCapture(source)
+
+        s = str(source).strip()
+        if s.lower().startswith("rtsp://"):
+            cap = cv2.VideoCapture(s, cv2.CAP_FFMPEG)
+            if cap.isOpened():
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                return cap
+            cap.release()
+        return cv2.VideoCapture(s)
+
+    def _publish_status_frame(self, title: str, detail: str = "") -> None:
+        canvas = np.zeros((360, 760, 3), dtype=np.uint8)
+        canvas[:, :] = (28, 27, 25)
+        cv2.putText(canvas, title[:80], (24, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.95, (0, 210, 255), 2, cv2.LINE_AA)
+        if detail:
+            cv2.putText(canvas, detail[:100], (24, 165), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (220, 220, 220), 2, cv2.LINE_AA)
+        cv2.putText(
+            canvas,
+            "Use RTSP URL or webcam source (webcam, webcam:0, 0, 1)",
+            (24, 210),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.56,
+            (180, 180, 180),
+            2,
+            cv2.LINE_AA,
+        )
+        cv2.putText(canvas, f"Camera ID {self.camera_id}: {self.camera_name}", (24, 250), cv2.FONT_HERSHEY_SIMPLEX, 0.56, (180, 180, 180), 2, cv2.LINE_AA)
+        ok_enc, enc = cv2.imencode(".jpg", canvas, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+        if ok_enc:
+            self._put_latest_jpeg(enc.tobytes())
+
     def _run(self) -> None:
         try:
             yolo_model, use_gpu = self._load_runtime_cfg()
@@ -373,19 +434,28 @@ class CameraPreviewWorker:
                 pytime.sleep(0.5)
             return
         labels_by_track: dict[int, tuple[str, float]] = {}
+        source = self._parse_camera_source(self.rtsp_url)
 
         while not self._stop.is_set():
-            cap = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            cap = self._open_capture(source)
             if not cap.isOpened():
+                self._publish_status_frame("Unable to open camera source", str(self.rtsp_url))
                 pytime.sleep(1.0)
                 continue
+
+            read_failures = 0
 
             while not self._stop.is_set():
                 ok, frame = cap.read()
                 if not ok or frame is None:
+                    read_failures += 1
+                    if read_failures >= 20:
+                        self._publish_status_frame("Camera stream read failed", str(self.rtsp_url))
+                        pytime.sleep(0.2)
+                        break
                     pytime.sleep(0.03)
-                    break
+                    continue
+                read_failures = 0
 
                 self._refresh_face_gallery()
                 dets = detector.detect(frame)

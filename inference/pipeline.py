@@ -73,6 +73,8 @@ class AttendancePipeline:
         self.track_mem: dict[int, TrackMemory] = {}
         self.runtime_dedup = DailyFirstCheckInDeduper()
         self.camera_id = cfg.inference.camera_id
+        self.window_name = "attendance"
+        self._display_window_ready = False
 
     @staticmethod
     def _torch_cuda() -> bool:
@@ -82,6 +84,82 @@ class AttendancePipeline:
             return bool(torch.cuda.is_available())
         except Exception:
             return False
+
+    @staticmethod
+    def _screen_size() -> tuple[int, int]:
+        if os.name != "nt":
+            return (0, 0)
+        try:
+            import ctypes
+
+            user32 = ctypes.windll.user32
+            try:
+                user32.SetProcessDPIAware()
+            except Exception:
+                pass
+            w = int(user32.GetSystemMetrics(0))
+            h = int(user32.GetSystemMetrics(1))
+            return (w, h)
+        except Exception:
+            return (0, 0)
+
+    def _init_display_window(self, frame_shape: tuple[int, ...]) -> None:
+        if self._display_window_ready or not self.show:
+            return
+        cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
+        sw, sh = self._screen_size()
+        if sw > 0 and sh > 0:
+            target_w = max(960, sw - 40)
+            target_h = max(540, sh - 120)
+        else:
+            h, w = frame_shape[:2]
+            target_w = max(1280, int(w))
+            target_h = max(720, int(h))
+        cv2.resizeWindow(self.window_name, int(target_w), int(target_h))
+        try:
+            cv2.moveWindow(self.window_name, 0, 0)
+        except Exception:
+            pass
+        self._display_window_ready = True
+
+    @staticmethod
+    def _is_blank_frame(frame: np.ndarray) -> bool:
+        if frame.size == 0:
+            return True
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        return float(gray.mean()) < 4.0 and float(gray.std()) < 4.0
+
+    @staticmethod
+    def _draw_blank_frame_warning(frame: np.ndarray) -> np.ndarray:
+        out = frame.copy()
+        h, w = out.shape[:2]
+        x1, y1 = 20, 20
+        x2, y2 = min(w - 20, 980), min(h - 20, 150)
+        if x2 > x1 and y2 > y1:
+            overlay = out.copy()
+            cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 0, 0), -1)
+            cv2.addWeighted(overlay, 0.55, out, 0.45, 0.0, out)
+        cv2.putText(
+            out,
+            "Blank camera frame detected.",
+            (30, 65),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.9,
+            (0, 255, 255),
+            2,
+            cv2.LINE_AA,
+        )
+        cv2.putText(
+            out,
+            "Try another source: --camera 1 (or close apps using webcam).",
+            (30, 105),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.62,
+            (255, 255, 255),
+            2,
+            cv2.LINE_AA,
+        )
+        return out
 
     def run(self) -> None:
         self.gallery.start()
@@ -94,6 +172,17 @@ class AttendancePipeline:
                     time.sleep(0.05)
                     continue
                 frame = packet.frame
+                if self._is_blank_frame(frame):
+                    if self.show:
+                        if not self._display_window_ready:
+                            self._init_display_window(frame.shape)
+                        warn = self._draw_blank_frame_warning(frame)
+                        cv2.imshow(self.window_name, warn)
+                        key = cv2.waitKey(1) & 0xFF
+                        if key in (27, ord("q")):
+                            break
+                    time.sleep(0.02)
+                    continue
                 now_ts = time.time()
                 detections = self.detector.detect(frame)
                 detections = [d for d in detections if self._bbox_area(d.bbox) >= self.cfg.inference.min_box_area]
@@ -112,8 +201,10 @@ class AttendancePipeline:
                     if len(fps_hist) > 30:
                         fps_hist.pop(0)
                 if self.show:
+                    if not self._display_window_ready:
+                        self._init_display_window(frame.shape)
                     self._draw_overlays(frame, tracks, fps=float(sum(fps_hist) / max(1, len(fps_hist))))
-                    cv2.imshow("attendance", frame)
+                    cv2.imshow(self.window_name, frame)
                     key = cv2.waitKey(1) & 0xFF
                     if key in (27, ord("q")):
                         break

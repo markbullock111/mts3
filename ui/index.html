@@ -136,7 +136,7 @@
         <h2>Add Camera</h2>
         <form id="cameraForm" class="grid-form">
           <label>Name <input name="name" required placeholder="Entrance Camera 1" /></label>
-          <label>RTSP URL <input name="rtsp_url" required placeholder="rtsp://user:pass@192.168.1.64:554/Streaming/Channels/102" /></label>
+          <label>Camera Source <input name="rtsp_url" required placeholder="rtsp://... or webcam / webcam:0 / 0 / 1" /></label>
           <label>Location <input name="location" placeholder="Main Gate" /></label>
           <label>Enabled
             <select name="enabled">
@@ -152,6 +152,7 @@
           <h2>Camera Data</h2>
           <button id="refreshCamerasBtn" type="button">Refresh</button>
         </div>
+        <p class="hint">Use RTSP URL for IP camera, or webcam source like <code>webcam</code>, <code>webcam:0</code>, <code>0</code>, <code>1</code>.</p>
         <table id="camerasTable">
           <thead>
             <tr>

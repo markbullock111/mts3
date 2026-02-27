@@ -4,6 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
+from .model_checks import ensure_local_file
 from .tracker import Detection
 
 try:
@@ -16,6 +17,8 @@ class YOLOPersonDetector:
     def __init__(self, model_path: str | Path, device: str | None = None, conf: float = 0.25):
         if YOLO is None:
             raise RuntimeError("ultralytics is not installed")
+        model_path = Path(model_path)
+        ensure_local_file(model_path, "YOLO model")
         self.model = YOLO(str(model_path))
         self.device = device
         self.conf = conf
