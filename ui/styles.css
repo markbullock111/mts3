@@ -129,6 +129,12 @@ button:disabled {
   cursor: wait;
   filter: none;
 }
+.danger-btn {
+  border-color: #9b2f2f;
+  background: #9b2f2f;
+  padding: 6px 10px;
+  font-size: 12px;
+}
 
 .hint {
   color: var(--muted);

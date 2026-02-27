@@ -153,7 +153,7 @@ Open UI: `http://127.0.0.1:8000/ui/`
 UI notes:
 
 - `Employees` tab: add employee with `Full Name`, `Birth`, `Job`, `Address`
-- `Employee Details` tab: view/edit profile, see uploaded enrollment pictures, and view entrance-time history (defaults to this week, selectable date range)
+- `Employee Details` tab: view/edit profile, add/remove each employee's `face`/`reid` images, and view entrance-time history (defaults to this week, selectable date range)
 - `Cameras` tab `Camera Source` accepts RTSP URL (`rtsp://...`) or local webcam source (`webcam`, `webcam:0`, `0`, `1`)
 
 ## 9) Run inference

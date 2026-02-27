@@ -4,6 +4,7 @@ const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 const state = {
   selectedEmployeeId: null,
   employees: [],
+  cameras: [],
   employeesSearchQuery: '',
   attendanceSummaryRows: [],
 };
@@ -265,6 +266,7 @@ function bindEnrollmentForm() {
 
 async function loadCameras() {
   const rows = await api('/cameras');
+  state.cameras = Array.isArray(rows) ? rows : [];
   const tbody = $('#camerasTable tbody');
   renderTableRows(
     tbody,
@@ -275,23 +277,81 @@ async function loadCameras() {
         <td>${escapeHtml(r.rtsp_url || '')}</td>
         <td>${escapeHtml(r.location || '')}</td>
         <td>${escapeHtml(String(r.enabled))}</td>
-        <td><button type="button" data-preview-camera-id="${r.id}" ${r.enabled ? '' : 'disabled'}>View</button></td>
+        <td>
+          <button type="button" data-preview-camera-id="${r.id}" ${r.enabled ? '' : 'disabled'}>View</button>
+          <button type="button" class="danger-btn" data-remove-camera-id="${r.id}">Remove</button>
+        </td>
       </tr>`).join('')
   );
 
   $$('#camerasTable button[data-preview-camera-id]').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       const id = Number(btn.dataset.previewCameraId);
       if (!id) return;
-      startCameraPreview(id);
+      const cam = (state.cameras || []).find(c => Number(c.id) === id);
+      const source = cam?.rtsp_url || '';
+      await startCameraPreview(id, source);
+    });
+  });
+
+  $$('#camerasTable button[data-remove-camera-id]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = Number(btn.dataset.removeCameraId);
+      if (!id) return;
+      if (!window.confirm(`Remove camera ${id}?`)) return;
+      btn.disabled = true;
+      try {
+        await api(`/cameras/${id}`, { method: 'DELETE' });
+        const img = $('#cameraPreviewImg');
+        if (img && Number(img.dataset.activeCameraId || 0) === id) {
+          stopCameraPreview();
+        }
+        await loadCameras();
+      } catch (err) {
+        alert(`Remove camera failed: ${err.message}`);
+      } finally {
+        btn.disabled = false;
+      }
     });
   });
 }
 
-function startCameraPreview(cameraId) {
+function isWebcamSource(source) {
+  const s = String(source || '').trim().toLowerCase();
+  if (!s) return false;
+  if (s === 'webcam' || s === 'camera' || s === 'cam') return true;
+  if (/^(webcam|camera|cam):\d+$/.test(s)) return true;
+  if (/^\d+$/.test(s)) return true;
+  return false;
+}
+
+async function requestBrowserCameraPermission(source) {
+  if (!isWebcamSource(source)) return true;
+  const hint = $('#cameraPreviewHint');
+  if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) {
+    if (hint) hint.textContent = 'This browser does not support camera permission requests (getUserMedia unavailable).';
+    return false;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    stream.getTracks().forEach(t => t.stop());
+    return true;
+  } catch (err) {
+    if (hint) hint.textContent = `Camera permission denied/blocked in browser: ${err?.message || err}. Allow camera access and try again.`;
+    return false;
+  }
+}
+
+async function startCameraPreview(cameraId, cameraSource = '') {
   const img = $('#cameraPreviewImg');
   const hint = $('#cameraPreviewHint');
   if (!img || !hint) return;
+  const allowed = await requestBrowserCameraPermission(cameraSource);
+  if (!allowed) {
+    img.removeAttribute('src');
+    img.dataset.activeCameraId = '';
+    return;
+  }
   img.src = `/cameras/${cameraId}/preview.mjpeg?t=${Date.now()}`;
   img.dataset.activeCameraId = String(cameraId);
   hint.textContent = `Live view for Camera ID ${cameraId}. Colored rectangles indicate tracked people; labels show recognized names when available.`;
@@ -486,9 +546,11 @@ function bindUnknowns() {
 function renderEmployeePhotos(items = []) {
   const grid = $('#employeePhotoGrid');
   const summary = $('#employeePhotosSummary');
+  const result = $('#employeePhotoActionResult');
   if (!items.length) {
     summary.textContent = 'No uploaded pictures yet';
     grid.innerHTML = '<div class="empty-box">No uploaded face/ReID pictures for this employee yet.</div>';
+    if (result && !result.textContent) result.textContent = '';
     return;
   }
   const faceCount = items.filter(x => x.kind === 'face').length;
@@ -505,9 +567,30 @@ function renderEmployeePhotos(items = []) {
           <div><span class="pill">${escapeHtml((p.kind || '').toUpperCase())}</span></div>
           <div title="${escapeHtml(p.original_filename || '')}">${escapeHtml(p.original_filename || '(no name)')}</div>
           <div>${escapeHtml(asIsoOrEmpty(p.created_at))}</div>
+          <div><button type="button" class="danger-btn" data-photo-delete-id="${p.id}">Remove</button></div>
         </div>
       </div>`;
   }).join('');
+
+  $$('#employeePhotoGrid button[data-photo-delete-id]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const employeeId = Number(state.selectedEmployeeId);
+      const photoId = Number(btn.dataset.photoDeleteId);
+      if (!employeeId || !photoId) return;
+      if (!window.confirm(`Remove photo ${photoId}? Linked embedding will also be removed if available.`)) return;
+      btn.disabled = true;
+      try {
+        const data = await api(`/employees/${employeeId}/photos/${photoId}`, { method: 'DELETE' });
+        if (result) result.textContent = JSON.stringify(data, null, 2);
+        await loadEmployees();
+        await loadEmployeeDetail(employeeId);
+      } catch (err) {
+        if (result) result.textContent = `ERROR: ${err.message}`;
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  });
 }
 
 function renderEmployeeHistory(items = []) {
@@ -615,6 +698,47 @@ function bindEmployeeDetails() {
       await loadEmployeeDetail(id);
     } catch (err) {
       $('#employeeDetailResult').textContent = `ERROR: ${err.message}`;
+    }
+  });
+
+  $('#employeePhotoAddForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const employeeId = Number(state.selectedEmployeeId);
+    const result = $('#employeePhotoActionResult');
+    if (!employeeId) {
+      alert('Select an employee first');
+      return;
+    }
+    const form = e.target;
+    const fd = new FormData(form);
+    const kind = String(fd.get('kind') || 'face').toLowerCase();
+    const files = form.querySelector('input[name="files"]')?.files;
+    if (!files || !files.length) {
+      alert('Select at least one image');
+      return;
+    }
+    const upload = new FormData();
+    for (const f of files) upload.append('files', f);
+    const btn = $('#employeePhotoAddBtn');
+    if (btn) {
+      btn.disabled = true;
+      btn.dataset.originalText = btn.dataset.originalText || btn.textContent || 'Add Images To Employee';
+      btn.textContent = 'Uploading...';
+    }
+    if (result) result.textContent = `Uploading ${files.length} ${kind} image(s) to employee ${employeeId}...`;
+    try {
+      const data = await api(`/employees/${employeeId}/enroll/${kind}`, { method: 'POST', body: upload });
+      if (result) result.textContent = JSON.stringify(data, null, 2);
+      form.reset();
+      await loadEmployees();
+      await loadEmployeeDetail(employeeId);
+    } catch (err) {
+      if (result) result.textContent = `ERROR: ${err.message}`;
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = btn.dataset.originalText || 'Add Images To Employee';
+      }
     }
   });
 }

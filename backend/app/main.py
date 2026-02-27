@@ -177,6 +177,30 @@ def _store_employee_uploaded_image(
     return row
 
 
+def _delete_data_file(rel_path: str | None) -> None:
+    if not rel_path:
+        return
+    try:
+        base = _DATA_DIR.resolve()
+        abs_path = (base / rel_path).resolve()
+        abs_path.relative_to(base)
+    except Exception:
+        return
+    try:
+        if abs_path.is_file():
+            abs_path.unlink()
+    except Exception:
+        return
+    # best-effort cleanup of empty directories up to data/
+    for parent in abs_path.parents:
+        if parent == base:
+            break
+        try:
+            parent.rmdir()
+        except OSError:
+            break
+
+
 def _employee_photo_to_dict(row: EmployeeUploadedImage) -> dict[str, Any]:
     return {
         "id": row.id,
@@ -539,6 +563,18 @@ def _get_or_create_preview_worker(camera: Camera) -> CameraPreviewWorker:
         return worker
 
 
+def _stop_preview_worker(camera_id: int) -> bool:
+    with _preview_workers_lock:
+        worker = _preview_workers.pop(camera_id, None)
+    if worker is None:
+        return False
+    try:
+        worker.stop()
+    except Exception:
+        pass
+    return True
+
+
 @app.on_event("startup")
 def startup() -> None:
     defaults = load_defaults_from_yaml(app_settings.repo_root)
@@ -780,9 +816,16 @@ def enroll_face(
         faces = sorted(faces, key=lambda x: x.det_score, reverse=True)
         detections += len(faces)
         best = faces[0]
-        _store_employee_uploaded_image(db, employee_id=employee_id, kind="face", upload=upload, raw_bytes=raw)
+        img_row = _store_employee_uploaded_image(db, employee_id=employee_id, kind="face", upload=upload, raw_bytes=raw)
+        db.flush()
         saved_images += 1
-        db.add(EmployeeFaceEmbedding(employee_id=employee_id, embedding_vector=best.embedding.tolist()))
+        db.add(
+            EmployeeFaceEmbedding(
+                employee_id=employee_id,
+                source_image_id=img_row.id,
+                embedding_vector=best.embedding.tolist(),
+            )
+        )
         inserted += 1
     if inserted == 0:
         raise HTTPException(status_code=400, detail="No face embeddings extracted from uploaded images")
@@ -815,9 +858,16 @@ def enroll_reid(
     for upload in files:
         raw, img = _read_upload_image(upload)
         emb = embedder.extract_from_bgr(img)
-        _store_employee_uploaded_image(db, employee_id=employee_id, kind="reid", upload=upload, raw_bytes=raw)
+        img_row = _store_employee_uploaded_image(db, employee_id=employee_id, kind="reid", upload=upload, raw_bytes=raw)
+        db.flush()
         saved_images += 1
-        db.add(EmployeeReIDEmbedding(employee_id=employee_id, embedding_vector=emb.tolist()))
+        db.add(
+            EmployeeReIDEmbedding(
+                employee_id=employee_id,
+                source_image_id=img_row.id,
+                embedding_vector=emb.tolist(),
+            )
+        )
         inserted += 1
     if inserted == 0:
         raise HTTPException(status_code=400, detail="No ReID embeddings extracted from uploaded images")
@@ -908,6 +958,43 @@ def create_event(payload: EventCreate, db: Session = Depends(get_db)) -> dict[st
         raise HTTPException(status_code=409, detail="Duplicate event") from exc
     db.refresh(evt)
     return {"created": True, "deduplicated": False, "event": _event_to_dict(evt)}
+
+
+@app.delete("/employees/{employee_id}/photos/{photo_id}")
+def delete_employee_photo(employee_id: int, photo_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+    photo = db.get(EmployeeUploadedImage, photo_id)
+    if photo is None or photo.employee_id != employee_id:
+        raise HTTPException(status_code=404, detail="Photo not found")
+
+    embeddings_deleted = 0
+    if photo.kind == "face":
+        embeddings_deleted = (
+            db.query(EmployeeFaceEmbedding)
+            .filter(EmployeeFaceEmbedding.employee_id == employee_id, EmployeeFaceEmbedding.source_image_id == photo_id)
+            .delete(synchronize_session=False)
+        )
+    elif photo.kind == "reid":
+        embeddings_deleted = (
+            db.query(EmployeeReIDEmbedding)
+            .filter(EmployeeReIDEmbedding.employee_id == employee_id, EmployeeReIDEmbedding.source_image_id == photo_id)
+            .delete(synchronize_session=False)
+        )
+
+    file_path = photo.file_path
+    db.delete(photo)
+    db.commit()
+    _delete_data_file(file_path)
+
+    if embeddings_deleted > 0:
+        bump_gallery_version(db)
+
+    return {
+        "deleted": True,
+        "employee_id": employee_id,
+        "photo_id": photo_id,
+        "kind": photo.kind,
+        "embeddings_deleted": int(embeddings_deleted),
+    }
 
 
 @app.get("/events")
@@ -1036,6 +1123,17 @@ def create_camera(name: str = Form(...), rtsp_url: str = Form(...), location: st
     db.commit()
     db.refresh(cam)
     return {"id": cam.id, "name": cam.name, "rtsp_url": cam.rtsp_url, "location": cam.location, "enabled": cam.enabled}
+
+
+@app.delete("/cameras/{camera_id}")
+def delete_camera(camera_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+    cam = db.get(Camera, camera_id)
+    if cam is None:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    db.delete(cam)
+    db.commit()
+    _stop_preview_worker(camera_id)
+    return {"deleted": True, "camera_id": camera_id}
 
 
 @app.get("/cameras/{camera_id}/preview.mjpeg")

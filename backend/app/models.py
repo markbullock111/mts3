@@ -61,10 +61,14 @@ class EmployeeFaceEmbedding(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id", ondelete="CASCADE"), index=True, nullable=False)
+    source_image_id: Mapped[int | None] = mapped_column(
+        ForeignKey("employee_uploaded_images.id", ondelete="CASCADE"), index=True, nullable=True
+    )
     embedding_vector: Mapped[list[float]] = mapped_column(ARRAY(Float), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     employee: Mapped[Employee] = relationship(back_populates="face_embeddings")
+    source_image: Mapped[EmployeeUploadedImage | None] = relationship(foreign_keys=[source_image_id])
 
 
 class EmployeeReIDEmbedding(Base):
@@ -72,10 +76,14 @@ class EmployeeReIDEmbedding(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id", ondelete="CASCADE"), index=True, nullable=False)
+    source_image_id: Mapped[int | None] = mapped_column(
+        ForeignKey("employee_uploaded_images.id", ondelete="CASCADE"), index=True, nullable=True
+    )
     embedding_vector: Mapped[list[float]] = mapped_column(ARRAY(Float), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     employee: Mapped[Employee] = relationship(back_populates="reid_embeddings")
+    source_image: Mapped[EmployeeUploadedImage | None] = relationship(foreign_keys=[source_image_id])
 
 
 class EmployeeUploadedImage(Base):

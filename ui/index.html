@@ -127,6 +127,18 @@
           <h2>Uploaded Pictures</h2>
           <div id="employeePhotosSummary" class="muted"></div>
         </div>
+        <form id="employeePhotoAddForm" class="grid-form">
+          <label>Kind
+            <select name="kind">
+              <option value="face">face</option>
+              <option value="reid">reid</option>
+            </select>
+          </label>
+          <label class="full">Images <input name="files" type="file" accept="image/*" multiple required /></label>
+          <button id="employeePhotoAddBtn" type="submit">Add Images To Employee</button>
+        </form>
+        <p class="hint">Use this section to add or remove a specific employee's face/ReID images.</p>
+        <pre id="employeePhotoActionResult" class="output"></pre>
         <div id="employeePhotoGrid" class="photo-grid"></div>
       </div>
     </section>
@@ -156,7 +168,7 @@
         <table id="camerasTable">
           <thead>
             <tr>
-              <th>ID</th><th>Name</th><th>RTSP URL</th><th>Location</th><th>Enabled</th><th>View</th>
+              <th>ID</th><th>Name</th><th>RTSP URL</th><th>Location</th><th>Enabled</th><th>Actions</th>
             </tr>
           </thead>
           <tbody></tbody>
