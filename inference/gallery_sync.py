@@ -24,11 +24,15 @@ class GallerySyncService:
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._last_sync_error: str | None = None
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
             return
-        self.refresh_now()
+        try:
+            self.refresh_now()
+        except Exception as exc:
+            self._set_sync_error(exc)
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
 
@@ -41,8 +45,9 @@ class GallerySyncService:
         while not self._stop.is_set():
             try:
                 self.refresh_now()
-            except Exception:
-                pass
+                self._clear_sync_error()
+            except Exception as exc:
+                self._set_sync_error(exc)
             self._stop.wait(self.refresh_seconds)
 
     def refresh_now(self) -> None:
@@ -57,6 +62,22 @@ class GallerySyncService:
         reid_matcher = EmbeddingMatcher(reid_rows, prefer_faiss=True)
         with self._lock:
             self._state = GalleryState(version=version, face_matcher=face_matcher, reid_matcher=reid_matcher)
+
+    def _set_sync_error(self, exc: Exception) -> None:
+        msg = f"{type(exc).__name__}: {exc}"
+        if msg == self._last_sync_error:
+            return
+        self._last_sync_error = msg
+        print(
+            f"[gallery] sync failed ({msg}). "
+            f"Will retry every {self.refresh_seconds}s. "
+            "Ensure backend is running."
+        )
+
+    def _clear_sync_error(self) -> None:
+        if self._last_sync_error is not None:
+            print("[gallery] sync restored.")
+        self._last_sync_error = None
 
     def get_state(self) -> GalleryState:
         with self._lock:
