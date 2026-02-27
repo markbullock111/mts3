@@ -977,6 +977,7 @@ def _dedup_known_event(db: Session, payload: EventCreate) -> tuple[AttendanceEve
     )
     if existing is None:
         return None, False
+    # Keep first check-in per day. If an out-of-order earlier event arrives, replace with earlier timestamp.
     if existing.ts <= ts:
         return existing, True
     existing.ts = ts
@@ -1206,6 +1207,12 @@ def delete_camera(camera_id: int, db: Session = Depends(get_db)) -> dict[str, An
     db.commit()
     _stop_preview_worker(camera_id)
     return {"deleted": True, "camera_id": camera_id}
+
+
+@app.post("/cameras/{camera_id}/preview/stop")
+def stop_camera_preview(camera_id: int) -> dict[str, Any]:
+    stopped = _stop_preview_worker(camera_id)
+    return {"stopped": bool(stopped), "camera_id": camera_id}
 
 
 @app.get("/cameras/{camera_id}/preview.mjpeg")

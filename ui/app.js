@@ -304,7 +304,7 @@ async function loadCameras() {
         await api(`/cameras/${id}`, { method: 'DELETE' });
         const img = $('#cameraPreviewImg');
         if (img && Number(img.dataset.activeCameraId || 0) === id) {
-          stopCameraPreview();
+          await stopCameraPreview({ releaseBackend: false });
         }
         await loadCameras();
       } catch (err) {
@@ -395,10 +395,18 @@ async function startCameraPreview(cameraId, cameraSource = '') {
   }
 }
 
-function stopCameraPreview() {
+async function stopCameraPreview({ releaseBackend = true } = {}) {
   const img = $('#cameraPreviewImg');
   const hint = $('#cameraPreviewHint');
   if (!img || !hint) return;
+  const activeId = Number(img.dataset.activeCameraId || 0);
+  if (releaseBackend && activeId) {
+    try {
+      await api(`/cameras/${activeId}/preview/stop`, { method: 'POST' });
+    } catch {
+      // ignore; still clear frontend preview state
+    }
+  }
   img.removeAttribute('src');
   img.dataset.activeCameraId = '';
   hint.textContent = 'Click View in the table to show live stream with colored person rectangles and names.';
@@ -437,7 +445,7 @@ function bindCameras() {
 
   refreshBtn.addEventListener('click', () => loadCameras().catch(err => alert(`Load cameras failed: ${err.message}`)));
   if (stopBtn) {
-    stopBtn.addEventListener('click', () => stopCameraPreview());
+    stopBtn.addEventListener('click', () => stopCameraPreview().catch(() => {}));
   }
 }
 
