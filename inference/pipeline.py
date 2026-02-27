@@ -15,7 +15,7 @@ from .camera import VideoSource
 from .config import RuntimeConfig
 from .event_logic import DailyFirstCheckInDeduper, is_within_morning_window
 from .face_recognizer import FaceRecognizer, FaceTrackBuffer
-from .gallery_sync import GallerySyncService
+from .gallery_sync import GalleryState, GallerySyncService
 from .geometry import crossed_entry_line, point_in_polygon
 from .reid_recognizer import BodyTrackBuffer, ReIDRecognizer
 from .tracker import Detection, Track, build_tracker
@@ -38,6 +38,12 @@ class TrackMemory:
     resolved_employee_name: str | None = None
     resolved_method: str | None = None
     resolved_confidence: float = 0.0
+    live_employee_id: int | None = None
+    live_employee_name: str | None = None
+    live_method: str | None = None
+    live_confidence: float = 0.0
+    last_live_infer_ts: float = 0.0
+    last_live_match_ts: float = 0.0
 
 
 class AttendancePipeline:
@@ -191,7 +197,8 @@ class AttendancePipeline:
                 detections = self.detector.detect(frame)
                 detections = [d for d in detections if self._bbox_area(d.bbox) >= self.cfg.inference.min_box_area]
                 tracks = self.tracker.update(detections, frame)
-                self._update_track_buffers(frame, tracks, packet.ts_ms, now_ts)
+                gallery_state = self.gallery.get_state()
+                self._update_track_buffers(frame, tracks, packet.ts_ms, now_ts, gallery_state)
 
                 if self.enroll_employee_id is not None:
                     self._maybe_enroll(frame, tracks)
@@ -234,7 +241,14 @@ class AttendancePipeline:
             return np.empty((0, 0, 3), dtype=np.uint8)
         return frame[y1:y2, x1:x2]
 
-    def _update_track_buffers(self, frame: np.ndarray, tracks: list[Track], ts_ms: int, now_ts: float) -> None:
+    def _update_track_buffers(
+        self,
+        frame: np.ndarray,
+        tracks: list[Track],
+        ts_ms: int,
+        now_ts: float,
+        gallery_state: GalleryState,
+    ) -> None:
         for tr in tracks:
             mem = self.track_mem.get(tr.track_id)
             if mem is None:
@@ -254,6 +268,8 @@ class AttendancePipeline:
             except Exception:
                 pass
 
+            self._update_live_identity(mem, now_ts, gallery_state)
+
             if not mem.crossed and mem.last_center is not None and mem.current_center is not None:
                 if crossed_entry_line(
                     mem.last_center,
@@ -263,6 +279,56 @@ class AttendancePipeline:
                     self.cfg.roi.roi_polygon,
                 ):
                     mem.crossed = True
+
+    def _update_live_identity(self, mem: TrackMemory, now_ts: float, state: GalleryState) -> None:
+        # Keep inference overhead bounded; update live identity at most twice per second per track.
+        if now_ts - mem.last_live_infer_ts < 0.5:
+            return
+        mem.last_live_infer_ts = now_ts
+
+        found = False
+        if state.face_matcher is not None:
+            try:
+                face_match = self.face_recognizer.identify_from_buffer(
+                    mem.face_buffer,
+                    state.face_matcher,
+                    threshold=self.cfg.inference.face_threshold,
+                    top_k_frames=max(1, min(2, self.cfg.inference.face_top_k_frames)),
+                )
+            except Exception:
+                face_match = None
+            if face_match is not None:
+                mem.live_employee_id = face_match.employee_id
+                mem.live_employee_name = (face_match.employee_name or "").strip() or None
+                mem.live_method = "face"
+                mem.live_confidence = float(face_match.score)
+                mem.last_live_match_ts = now_ts
+                found = True
+
+        if not found and state.reid_matcher is not None:
+            try:
+                reid_match = self.reid_recognizer.identify_from_buffer(
+                    mem.body_buffer,
+                    state.reid_matcher,
+                    threshold=self.cfg.inference.reid_threshold,
+                    top_k_frames=2,
+                )
+            except Exception:
+                reid_match = None
+            if reid_match is not None:
+                mem.live_employee_id = reid_match.employee_id
+                mem.live_employee_name = (reid_match.employee_name or "").strip() or None
+                mem.live_method = "reid"
+                mem.live_confidence = float(reid_match.score)
+                mem.last_live_match_ts = now_ts
+                found = True
+
+        # Short stickiness avoids rapid flicker between name and "Detecting...".
+        if (not found) and (now_ts - mem.last_live_match_ts > 1.5):
+            mem.live_employee_id = None
+            mem.live_employee_name = None
+            mem.live_method = None
+            mem.live_confidence = 0.0
 
     def _finalize_crossed_tracks(self, frame: np.ndarray, ts_ms: int) -> None:
         state = self.gallery.get_state()
@@ -377,14 +443,24 @@ class AttendancePipeline:
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
             if mem and mem.resolved_employee_name:
                 label = mem.resolved_employee_name
+            elif mem and mem.live_employee_name:
+                label = mem.live_employee_name
             elif mem and mem.resolved_employee_id is not None:
                 label = f"Employee {mem.resolved_employee_id}"
+            elif mem and mem.live_employee_id is not None:
+                label = f"Employee {mem.live_employee_id}"
             elif mem and mem.finalized:
                 label = "Unknown"
             else:
                 label = "Detecting..."
-            if mem and mem.resolved_method:
-                label += f" ({mem.resolved_method}:{mem.resolved_confidence:.2f})"
+            method = mem.resolved_method if mem and mem.resolved_method else (mem.live_method if mem else None)
+            score = (
+                mem.resolved_confidence
+                if mem and mem.resolved_method
+                else (mem.live_confidence if mem and mem.live_method else 0.0)
+            )
+            if method:
+                label += f" ({method}:{score:.2f})"
             if mem and mem.finalized:
                 label += " [posted]" if mem.posted else " [finalized]"
             cv2.putText(frame, label, (x1, max(20, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
