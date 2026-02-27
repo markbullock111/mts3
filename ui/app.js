@@ -207,6 +207,7 @@ async function ensureEmployeesLoaded() {
 
 function bindEmployeeForm() {
   const openAddBtn = $('#openAddEmployeePageBtn');
+  const openEnrollmentBtn = $('#openEnrollmentPageBtn');
   const form = $('#employeeForm');
   const refreshBtn = $('#refreshEmployeesBtn');
   const searchInput = $('#employeesSearchInput');
@@ -215,6 +216,11 @@ function bindEmployeeForm() {
   if (openAddBtn) {
     openAddBtn.addEventListener('click', () => {
       window.location.href = '/ui/add_employee.html';
+    });
+  }
+  if (openEnrollmentBtn) {
+    openEnrollmentBtn.addEventListener('click', () => {
+      window.location.href = '/ui/enrollment.html';
     });
   }
 

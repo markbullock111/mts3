@@ -20,10 +20,6 @@
       <div class="card">
         <div class="row-between wrap">
           <h2>Employee Profile</h2>
-          <div class="controls">
-            <button id="backToAdminBtn" type="button">Back To Employees</button>
-            <button id="goEnrollmentBtn" type="button">Enrollment Page</button>
-          </div>
         </div>
         <form id="addEmployeeForm" class="grid-form">
           <label>Full Name <input name="full_name" required /></label>
@@ -39,8 +35,36 @@
           </label>
           <button type="submit">Add Employee</button>
         </form>
-        <p class="hint">After adding, click Enrollment Page to upload face/ReID images.</p>
+        <p class="hint">Create employee profile, then upload face/ReID images below.</p>
         <pre id="addEmployeeResult" class="output"></pre>
+      </div>
+
+      <div class="card">
+        <div class="row-between wrap">
+          <h2>Upload Images</h2>
+          <div class="muted" id="uploadTargetHint">Target Employee: not selected</div>
+        </div>
+        <form id="addEmployeeUploadForm" class="grid-form">
+          <label>Employee ID
+            <input id="addEmployeeUploadEmployeeId" name="employee_id" type="number" min="1" placeholder="Create employee first or enter ID" required />
+          </label>
+          <label>Mode
+            <select name="kind">
+              <option value="face">Face</option>
+              <option value="reid">ReID</option>
+            </select>
+          </label>
+          <label class="full">Images
+            <input name="files" type="file" accept="image/*" multiple required />
+          </label>
+          <button id="addEmployeeUploadBtn" type="submit">Upload Images</button>
+        </form>
+        <div id="addEmployeeUploadStatus" class="upload-status hidden" aria-live="polite">
+          <span class="spinner" aria-hidden="true"></span>
+          <span id="addEmployeeUploadStatusText">Uploading...</span>
+        </div>
+        <p class="hint">You can upload directly here without leaving this page.</p>
+        <pre id="addEmployeeUploadResult" class="output"></pre>
       </div>
     </section>
   </main>
