@@ -10,7 +10,7 @@
   <header class="topbar">
     <div>
       <h1>Add Employee</h1>
-      <p>Create employee profile, then continue to enrollment.</p>
+      <p>Create employee profile and upload pictures in one place.</p>
     </div>
     <div class="health" id="addEmployeeStatus">Ready</div>
   </header>
@@ -19,7 +19,7 @@
     <section class="tab active">
       <div class="card">
         <div class="row-between wrap">
-          <h2>Employee Profile</h2>
+          <h2>Employee Profile <span class="pill">Step 1</span></h2>
         </div>
         <form id="addEmployeeForm" class="grid-form">
           <label>Full Name <input name="full_name" required /></label>
@@ -35,13 +35,14 @@
           </label>
           <button type="submit">Add Employee</button>
         </form>
-        <p class="hint">Create employee profile, then upload face/ReID images below.</p>
+        <p class="hint">Create profile first. After save, image upload will be enabled for that employee.</p>
+        <div id="addEmployeeCreatedMeta" class="muted">No employee selected yet.</div>
         <pre id="addEmployeeResult" class="output"></pre>
       </div>
 
       <div class="card">
         <div class="row-between wrap">
-          <h2>Upload Images</h2>
+          <h2>Upload Images <span class="pill">Step 2</span></h2>
           <div class="muted" id="uploadTargetHint">Target Employee: not selected</div>
         </div>
         <form id="addEmployeeUploadForm" class="grid-form">
@@ -54,13 +55,21 @@
           <label class="full">Images
             <input name="files" type="file" accept="image/*" multiple required />
           </label>
-          <button id="addEmployeeUploadBtn" type="submit">Upload Images</button>
+          <button id="addEmployeeUploadBtn" type="submit" disabled>Upload Images</button>
         </form>
         <div id="addEmployeeUploadStatus" class="upload-status hidden" aria-live="polite">
           <span class="spinner" aria-hidden="true"></span>
           <span id="addEmployeeUploadStatusText">Uploading...</span>
         </div>
-        <p class="hint">Images uploaded here are applied to the employee created on this page.</p>
+        <p class="hint">If no main picture is set, the first uploaded image will be used in employee list.</p>
+        <div class="row-between wrap">
+          <h3>Uploaded Pictures</h3>
+          <div class="controls">
+            <div id="addEmployeePhotosSummary" class="muted"></div>
+            <button id="addEmployeeClearMainPhotoBtn" type="button" class="secondary-btn">Clear Main Picture</button>
+          </div>
+        </div>
+        <div id="addEmployeePhotoGrid" class="photo-grid"></div>
         <pre id="addEmployeeUploadResult" class="output"></pre>
       </div>
     </section>

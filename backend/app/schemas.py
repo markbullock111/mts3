@@ -21,6 +21,7 @@ class EmployeeUpdate(BaseModel):
     job_title: str | None = None
     address: str | None = None
     status: Literal["active", "inactive"] | None = None
+    main_photo_id: int | None = None
 
 
 class EmployeeOut(BaseModel):
@@ -33,6 +34,7 @@ class EmployeeOut(BaseModel):
     job_title: str | None = None
     address: str | None = None
     status: str
+    main_photo_id: int | None = None
     created_at: datetime
     face_embeddings_count: int = 0
     reid_embeddings_count: int = 0

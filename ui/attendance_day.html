@@ -21,26 +21,52 @@
         <div class="row-between wrap">
           <h2 id="dayViewTitle">Attendance Summary</h2>
           <div class="controls">
+            <button id="dayViewBackBtn" type="button" class="secondary-btn">Back To Admin</button>
             <label>Date <input type="date" id="dayViewDate" /></label>
+            <button id="dayViewTodayBtn" type="button" class="secondary-btn">Today</button>
             <button id="dayViewLoadBtn" type="button">Load</button>
             <button id="dayViewExportBtn" type="button">Export CSV</button>
           </div>
         </div>
+        <div class="metrics">
+          <div class="metric-card">
+            <div class="metric-label">Rows</div>
+            <div id="dayMetricRows" class="metric-value">0</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Recognized</div>
+            <div id="dayMetricRecognized" class="metric-value">0</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Unknown</div>
+            <div id="dayMetricUnknown" class="metric-value">0</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">On Time</div>
+            <div id="dayMetricOnTime" class="metric-value metric-value-ok">0</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Late</div>
+            <div id="dayMetricLate" class="metric-value metric-value-late">0</div>
+          </div>
+        </div>
         <p class="hint" id="dayViewHint">Shows first check-in per employee and unknown detections for the selected date.</p>
-        <table id="dayViewTable">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Code</th>
-              <th>Entrance Time (UTC)</th>
-              <th>Method</th>
-              <th>Confidence</th>
-              <th>Status</th>
-              <th>Picture</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+        <div class="table-wrap">
+          <table id="dayViewTable">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Code</th>
+                <th>Entrance Time (UTC)</th>
+                <th>Method</th>
+                <th>Confidence</th>
+                <th>Status</th>
+                <th>Picture</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </div>
     </section>
   </main>

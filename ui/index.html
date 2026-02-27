@@ -28,10 +28,33 @@
           <h2>Attendance Dashboard</h2>
           <div class="controls">
             <label>Date <input type="date" id="eventsDate" /></label>
+            <button id="attendanceTodayBtn" type="button" class="secondary-btn">Today</button>
             <button id="loadEventsBtn">Load In New Tab</button>
             <button id="refreshTodayBtn" type="button">Refresh Today</button>
             <button id="exportCsvBtn">Export CSV</button>
             <label><input type="checkbox" id="attendanceAutoRefresh" checked /> Auto Refresh (5s)</label>
+          </div>
+        </div>
+        <div class="metrics" id="attendanceMetrics">
+          <div class="metric-card">
+            <div class="metric-label">Rows</div>
+            <div id="attendanceMetricRows" class="metric-value">0</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Recognized</div>
+            <div id="attendanceMetricRecognized" class="metric-value">0</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Unknown</div>
+            <div id="attendanceMetricUnknown" class="metric-value">0</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">On Time</div>
+            <div id="attendanceMetricOnTime" class="metric-value metric-value-ok">0</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Late</div>
+            <div id="attendanceMetricLate" class="metric-value metric-value-late">0</div>
           </div>
         </div>
         <div class="row-between wrap">
@@ -46,6 +69,10 @@
         <div class="row-between wrap">
           <h3 id="attendanceSummaryTitle">Today's Check-in List</h3>
           <div class="controls">
+            <label>Filter
+              <input id="attendanceSummarySearchInput" type="text" placeholder="name / code / method / status" />
+            </label>
+            <button id="clearAttendanceSearchBtn" type="button" class="secondary-btn">Clear</button>
             <label>Sort By
               <select id="attendanceSummarySortBy">
                 <option value="time">Time</option>
@@ -60,14 +87,17 @@
             </label>
           </div>
         </div>
-        <table id="attendanceSummaryTable">
-          <thead>
-            <tr>
-              <th>Name</th><th>Code</th><th>Entrance Time (UTC)</th><th>Method</th><th>Confidence</th><th>Status</th><th>Picture</th><th>Override</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+        <div class="table-wrap">
+          <table id="attendanceSummaryTable">
+            <thead>
+              <tr>
+                <th>Name</th><th>Code</th><th>Entrance Time (UTC)</th><th>Method</th><th>Confidence</th><th>Status</th><th>Picture</th><th>Override</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <datalist id="attendanceEmployeeOptions"></datalist>
       </div>
     </section>
 
@@ -77,48 +107,40 @@
           <h2>Employees</h2>
           <div class="controls">
             <button id="openAddEmployeePageBtn" type="button">Add Employee</button>
-            <button id="openEnrollmentPageBtn" type="button">Enrollment</button>
+            <button id="openEnrollmentPageBtn" type="button" class="secondary-btn">Enrollment</button>
             <label>Search
               <input id="employeesSearchInput" type="text" placeholder="Search by name / ID / code" />
             </label>
-            <button id="clearEmployeesSearchBtn" type="button">Clear</button>
-            <button id="refreshEmployeesBtn" type="button">Refresh</button>
+            <label>Sort By
+              <select id="employeesSortBy">
+                <option value="id">ID</option>
+                <option value="name">Name</option>
+                <option value="code">Code</option>
+                <option value="status">Status</option>
+              </select>
+            </label>
+            <label>Order
+              <select id="employeesSortDir">
+                <option value="asc">Asc</option>
+                <option value="desc">Desc</option>
+              </select>
+            </label>
+            <button id="clearEmployeesSearchBtn" type="button" class="secondary-btn">Clear</button>
+            <button id="refreshEmployeesBtn" type="button" class="secondary-btn">Refresh</button>
           </div>
         </div>
-        <p class="hint">Search supports employee name, employee ID, or employee code.</p>
-        <table id="employeesTable">
-          <thead>
-            <tr>
-              <th>ID</th><th>Code</th><th>Name</th><th>Birth</th><th>Job</th><th>Status</th><th>Face</th><th>ReID</th><th>Photos</th><th>Details</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </section>
-
-    <section id="tab-enrollment" class="tab">
-      <div class="card">
-        <h2>Enrollment Workflow</h2>
-        <form id="faceEnrollForm" class="grid-form">
-          <label>Employee ID <input type="number" name="employee_id" min="1" required /></label>
-          <label>Mode
-            <select name="kind">
-              <option value="face">Face</option>
-              <option value="reid">ReID</option>
-            </select>
-          </label>
-          <label class="full">Upload Photos <input type="file" name="files" accept="image/*" multiple required /></label>
-          <button id="enrollSubmitBtn" type="submit">Upload Enrollment Images</button>
-        </form>
-        <div id="enrollUploadStatus" class="upload-status hidden" aria-live="polite">
-          <span class="spinner" aria-hidden="true"></span>
-          <span id="enrollUploadStatusText">Uploading...</span>
+        <p class="hint">Search supports employee name, employee ID, or employee code. Use View for full profile/history/photos.</p>
+        <div id="employeesStats" class="muted"></div>
+        <div class="table-wrap">
+          <table id="employeesTable">
+            <thead>
+              <tr>
+                <th>ID</th><th>Code</th><th>Name</th><th>Main Picture</th><th>Birth</th><th>Job</th><th>Status</th><th>Face</th><th>ReID</th><th>Photos</th><th>Details</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
         </div>
-        <p id="enrollTargetInfo" class="hint">Employee ID will be shown during upload.</p>
-        <p class="hint">Face enrollment: upload at least 5 photos per employee (different angles/lighting, masks/helmets optional).</p>
-        <p class="hint">Optional live enroll capture mode: run inference with <code>--enroll-employee-id &lt;ID&gt; --enroll-kind face|reid</code>.</p>
-        <pre id="enrollResult" class="output"></pre>
       </div>
     </section>
 
@@ -126,8 +148,9 @@
       <div class="card">
         <div class="row-between">
           <h2>System Settings</h2>
-          <button id="reloadSettingsBtn">Reload</button>
+          <button id="reloadSettingsBtn" class="secondary-btn">Reload</button>
         </div>
+        <p class="hint">Update matching thresholds, attendance time policy, and entry geometry.</p>
         <form id="settingsForm" class="grid-form">
           <label>Face Threshold <input type="number" step="0.01" name="face_threshold" /></label>
           <label>ReID Threshold <input type="number" step="0.01" name="reid_threshold" /></label>
@@ -141,12 +164,17 @@
               <option value="true">true</option>
             </select>
           </label>
-          <label class="full">ROI Polygon (JSON)
-            <textarea name="roi_polygon" rows="4"></textarea>
-          </label>
-          <label class="full">Entry Line (JSON)
-            <textarea name="entry_line" rows="3"></textarea>
-          </label>
+          <details class="full advanced-settings" open>
+            <summary>Advanced Geometry (ROI/Entry Line)</summary>
+            <div class="grid-form">
+              <label class="full">ROI Polygon (JSON)
+                <textarea name="roi_polygon" rows="4"></textarea>
+              </label>
+              <label class="full">Entry Line (JSON)
+                <textarea name="entry_line" rows="3"></textarea>
+              </label>
+            </div>
+          </details>
           <button type="submit">Save Settings</button>
         </form>
         <pre id="settingsResult" class="output"></pre>
@@ -171,23 +199,25 @@
       <div class="card">
         <div class="row-between wrap">
           <h2>Camera Data</h2>
-          <button id="refreshCamerasBtn" type="button">Refresh</button>
+          <button id="refreshCamerasBtn" type="button" class="secondary-btn">Refresh</button>
         </div>
         <p class="hint">Use RTSP URL for IP camera, or webcam source like <code>webcam</code>, <code>webcam:0</code>, <code>0</code>, <code>1</code>.</p>
-        <table id="camerasTable">
-          <thead>
-            <tr>
-              <th>ID</th><th>Name</th><th>RTSP URL</th><th>Location</th><th>Enabled</th><th>Actions</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+        <div class="table-wrap">
+          <table id="camerasTable">
+            <thead>
+              <tr>
+                <th>ID</th><th>Name</th><th>RTSP URL</th><th>Location</th><th>Enabled</th><th>Actions</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </div>
 
       <div class="card">
         <div class="row-between wrap">
           <h2>Live Camera View</h2>
-          <button id="stopCameraPreviewBtn" type="button">Stop View</button>
+          <button id="stopCameraPreviewBtn" type="button" class="secondary-btn">Stop View</button>
         </div>
         <p id="cameraPreviewHint" class="hint">Click <code>View</code> in Camera Data to show live stream with colored person rectangles and names.</p>
         <div class="camera-preview-wrap">

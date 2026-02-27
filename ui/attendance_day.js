@@ -162,6 +162,35 @@ function targetTimeLabel(policy, dateStr) {
   return `Standard ${standard} UTC`;
 }
 
+function renderDayMetrics(rows, targetMs) {
+  const list = rows || [];
+  let recognized = 0;
+  let unknown = 0;
+  let onTime = 0;
+  let late = 0;
+  for (const r of list) {
+    if (String(r.full_name || '').toUpperCase() === 'UNKNOWN' || String(r.method || '') === 'unknown') {
+      unknown += 1;
+      continue;
+    }
+    recognized += 1;
+    if (!r.entrance_ts) continue;
+    const enteredMs = new Date(r.entrance_ts).getTime();
+    if (!Number.isFinite(enteredMs) || !Number.isFinite(targetMs)) continue;
+    if (enteredMs <= targetMs) onTime += 1;
+    else late += 1;
+  }
+  const set = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = String(value);
+  };
+  set('dayMetricRows', list.length);
+  set('dayMetricRecognized', recognized);
+  set('dayMetricUnknown', unknown);
+  set('dayMetricOnTime', onTime);
+  set('dayMetricLate', late);
+}
+
 async function loadDay(dateStr) {
   const status = $('#dayViewStatus');
   const hint = $('#dayViewHint');
@@ -184,6 +213,7 @@ async function loadDay(dateStr) {
     const targetLabel = targetTimeLabel(policy, dateStr);
     const targetMs = targetUtcMs(dateStr, target);
     const rows = buildSummaryRows(employees || [], events || []);
+    renderDayMetrics(rows, targetMs);
     renderTableRows(
       tbody,
       rows.map((r) => `
@@ -212,6 +242,7 @@ async function loadDay(dateStr) {
     hint.textContent = `Attendance time: ${targetLabel} | Rows: ${rows.length}`;
     status.textContent = 'Loaded';
   } catch (err) {
+    renderDayMetrics([], Number.NaN);
     renderTableRows(tbody, '');
     hint.textContent = `Load failed: ${err.message}`;
     status.textContent = 'Error';
@@ -221,9 +252,23 @@ async function loadDay(dateStr) {
 function bind() {
   const dateInput = $('#dayViewDate');
   const loadBtn = $('#dayViewLoadBtn');
+  const backBtn = $('#dayViewBackBtn');
+  const todayBtn = $('#dayViewTodayBtn');
   const exportBtn = $('#dayViewExportBtn');
   const initialDate = getDateFromQuery();
   dateInput.value = initialDate;
+
+  backBtn?.addEventListener('click', () => {
+    window.location.href = '/ui/';
+  });
+
+  todayBtn?.addEventListener('click', async () => {
+    const date = todayStr();
+    dateInput.value = date;
+    const url = `/ui/attendance_day.html?date=${encodeURIComponent(date)}`;
+    window.history.replaceState({}, '', url);
+    await loadDay(date);
+  });
 
   loadBtn.addEventListener('click', async () => {
     const date = dateInput.value || todayStr();

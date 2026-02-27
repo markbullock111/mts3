@@ -213,6 +213,13 @@ def _employee_photo_to_dict(row: EmployeeUploadedImage) -> dict[str, Any]:
 
 
 def _employee_to_dict(emp: Employee, include_lists: bool = False) -> dict[str, Any]:
+    uploaded_images = list(getattr(emp, "uploaded_images", []) or [])
+    main_photo = getattr(emp, "main_photo", None)
+    if main_photo is None and uploaded_images:
+        # Fallback display photo when admin has not explicitly selected a main picture:
+        # use the first uploaded image (oldest by created_at/id).
+        main_photo = sorted(uploaded_images, key=lambda r: (r.created_at, r.id))[0]
+    main_photo_url = _media_url_from_data_rel_path(main_photo.file_path) if main_photo else None
     data = {
         "id": emp.id,
         "full_name": emp.full_name,
@@ -221,13 +228,16 @@ def _employee_to_dict(emp: Employee, include_lists: bool = False) -> dict[str, A
         "job_title": emp.job_title,
         "address": emp.address,
         "status": emp.status.value if hasattr(emp.status, "value") else str(emp.status),
+        "main_photo_id": emp.main_photo_id,
+        "main_photo_url": main_photo_url,
+        "main_photo": _employee_photo_to_dict(main_photo) if main_photo else None,
         "created_at": emp.created_at,
         "face_embeddings_count": len(getattr(emp, "face_embeddings", []) or []),
         "reid_embeddings_count": len(getattr(emp, "reid_embeddings", []) or []),
-        "uploaded_images_count": len(getattr(emp, "uploaded_images", []) or []),
+        "uploaded_images_count": len(uploaded_images),
     }
     if include_lists:
-        images = sorted(list(getattr(emp, "uploaded_images", []) or []), key=lambda r: (r.created_at, r.id), reverse=True)
+        images = sorted(uploaded_images, key=lambda r: (r.created_at, r.id), reverse=True)
         data["uploaded_images"] = [_employee_photo_to_dict(r) for r in images]
     return data
 
@@ -709,7 +719,12 @@ def list_employees(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
     rows = (
         db.execute(
             select(Employee)
-            .options(joinedload(Employee.face_embeddings), joinedload(Employee.reid_embeddings), joinedload(Employee.uploaded_images))
+            .options(
+                joinedload(Employee.face_embeddings),
+                joinedload(Employee.reid_embeddings),
+                joinedload(Employee.uploaded_images),
+                joinedload(Employee.main_photo),
+            )
             .order_by(Employee.id.asc())
         )
         .unique()
@@ -771,6 +786,7 @@ def get_employee(employee_id: int, db: Session = Depends(get_db)) -> dict[str, A
                 joinedload(Employee.face_embeddings),
                 joinedload(Employee.reid_embeddings),
                 joinedload(Employee.uploaded_images),
+                joinedload(Employee.main_photo),
             )
             .where(Employee.id == employee_id)
         )
@@ -806,6 +822,15 @@ def update_employee(employee_id: int, payload: EmployeeUpdate, db: Session = Dep
         emp.address = data["address"]
     if "status" in data and data["status"] is not None:
         emp.status = EmployeeStatus(data["status"])
+    if "main_photo_id" in data:
+        main_photo_id = data["main_photo_id"]
+        if main_photo_id is None:
+            emp.main_photo_id = None
+        else:
+            photo = db.get(EmployeeUploadedImage, int(main_photo_id))
+            if photo is None or photo.employee_id != employee_id:
+                raise HTTPException(status_code=400, detail="main_photo_id must reference this employee's uploaded image")
+            emp.main_photo_id = int(main_photo_id)
     db.commit()
     db.refresh(emp)
     return _employee_to_dict(emp)
@@ -1054,6 +1079,9 @@ def delete_employee_photo(employee_id: int, photo_id: int, db: Session = Depends
         )
 
     file_path = photo.file_path
+    emp = db.get(Employee, employee_id)
+    if emp is not None and emp.main_photo_id == photo_id:
+        emp.main_photo_id = None
     db.delete(photo)
     db.commit()
     _delete_data_file(file_path)

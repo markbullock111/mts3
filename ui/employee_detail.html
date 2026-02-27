@@ -21,7 +21,8 @@
         <div class="row-between wrap">
           <h2>Load Employee</h2>
           <div class="controls">
-            <button id="backToAdminBtn" type="button">Back To Admin</button>
+            <button id="backToAdminBtn" type="button" class="secondary-btn">Back To Admin</button>
+            <button id="openEnrollmentFromDetailBtn" type="button" class="secondary-btn">Enrollment</button>
             <label>Employee ID <input type="number" id="detailEmployeeIdInput" min="1" placeholder="Enter employee ID" /></label>
             <button id="loadEmployeeDetailBtn" type="button">Load</button>
           </div>
@@ -58,23 +59,29 @@
           <div class="controls">
             <label>From <input type="date" id="employeeHistoryDateFrom" /></label>
             <label>To <input type="date" id="employeeHistoryDateTo" /></label>
-            <button id="loadEmployeeHistoryBtn" type="button">Load History</button>
+            <button id="employeeHistoryLast7Btn" type="button" class="secondary-btn">Last 7 Days</button>
+            <button id="loadEmployeeHistoryBtn" type="button" class="secondary-btn">Load History</button>
           </div>
         </div>
-        <table id="employeeHistoryTable">
-          <thead>
-            <tr>
-              <th>ID</th><th>Time (UTC)</th><th>Method</th><th>Conf</th><th>Camera</th><th>Track</th><th>Snapshot</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+        <div class="table-wrap">
+          <table id="employeeHistoryTable">
+            <thead>
+              <tr>
+                <th>ID</th><th>Time (UTC)</th><th>Method</th><th>Conf</th><th>Camera</th><th>Track</th><th>Snapshot</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </div>
 
       <div class="card">
         <div class="row-between wrap">
           <h2>Uploaded Pictures</h2>
-          <div id="employeePhotosSummary" class="muted"></div>
+          <div class="controls">
+            <div id="employeePhotosSummary" class="muted"></div>
+            <button id="clearMainPhotoBtn" type="button" class="secondary-btn">Clear Main Picture</button>
+          </div>
         </div>
         <form id="employeePhotoAddForm" class="grid-form">
           <label>Kind

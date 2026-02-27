@@ -48,11 +48,24 @@ class Employee(Base):
     status: Mapped[EmployeeStatus] = mapped_column(
         Enum(EmployeeStatus, name="employee_status"), default=EmployeeStatus.active, nullable=False
     )
+    main_photo_id: Mapped[int | None] = mapped_column(
+        ForeignKey("employee_uploaded_images.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     face_embeddings: Mapped[list[EmployeeFaceEmbedding]] = relationship(back_populates="employee", cascade="all, delete-orphan")
     reid_embeddings: Mapped[list[EmployeeReIDEmbedding]] = relationship(back_populates="employee", cascade="all, delete-orphan")
-    uploaded_images: Mapped[list[EmployeeUploadedImage]] = relationship(back_populates="employee", cascade="all, delete-orphan")
+    uploaded_images: Mapped[list[EmployeeUploadedImage]] = relationship(
+        back_populates="employee",
+        cascade="all, delete-orphan",
+        foreign_keys="EmployeeUploadedImage.employee_id",
+    )
+    main_photo: Mapped[EmployeeUploadedImage | None] = relationship(
+        foreign_keys=[main_photo_id],
+        post_update=True,
+    )
     attendance_events: Mapped[list[AttendanceEvent]] = relationship(back_populates="employee")
 
 
@@ -96,7 +109,10 @@ class EmployeeUploadedImage(Base):
     file_path: Mapped[str] = mapped_column(Text, nullable=False)  # path relative to data/
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
-    employee: Mapped[Employee] = relationship(back_populates="uploaded_images")
+    employee: Mapped[Employee] = relationship(
+        back_populates="uploaded_images",
+        foreign_keys=[employee_id],
+    )
 
 
 class AttendanceEvent(Base):

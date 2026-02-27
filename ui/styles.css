@@ -13,7 +13,7 @@
 * { box-sizing: border-box; }
 body {
   margin: 0;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: "Segoe UI", "Noto Sans", "Helvetica Neue", Arial, sans-serif;
   background:
     radial-gradient(circle at 12% 10%, rgba(166,60,36,0.08), transparent 35%),
     radial-gradient(circle at 90% 15%, rgba(32,78,91,0.1), transparent 40%),
@@ -61,6 +61,8 @@ body {
 }
 
 main {
+  max-width: 1480px;
+  margin: 0 auto;
   padding: 0 24px 24px;
   display: grid;
   gap: 16px;
@@ -91,6 +93,13 @@ main {
   flex-wrap: wrap;
   align-items: center;
 }
+.controls label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
 .grid-form {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -104,6 +113,7 @@ main {
   color: var(--muted);
 }
 .grid-form label.full { grid-column: 1 / -1; }
+.grid-form .full { grid-column: 1 / -1; }
 input, select, textarea, button {
   font: inherit;
 }
@@ -124,11 +134,41 @@ button {
   cursor: pointer;
 }
 button:hover { filter: brightness(0.97); }
+.secondary-btn {
+  border-color: var(--line);
+  background: #fff;
+  color: var(--ink);
+}
 button:disabled {
   opacity: 0.65;
   cursor: wait;
   filter: none;
 }
+.metrics {
+  margin: 12px 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+}
+.metric-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  padding: 10px 12px;
+}
+.metric-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.metric-value {
+  margin-top: 6px;
+  font-size: 24px;
+  line-height: 1;
+  font-weight: 700;
+  color: var(--ink);
+}
+.metric-value-ok { color: var(--ok); }
+.metric-value-late { color: #b42318; }
 .danger-btn {
   border-color: #9b2f2f;
   background: #9b2f2f;
@@ -203,6 +243,10 @@ table {
   border-collapse: collapse;
   font-size: 14px;
 }
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
 th, td {
   text-align: left;
   border-bottom: 1px solid var(--line);
@@ -215,10 +259,93 @@ th {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  position: sticky;
+  top: 0;
+  background: #f8f4ec;
+  z-index: 1;
 }
 tr:hover td { background: rgba(0, 0, 0, 0.015); }
+.row-unknown td {
+  background: rgba(154, 107, 18, 0.06);
+}
 .small-input {
-  width: 120px;
+  width: 160px;
+}
+.unknown-override-wrap {
+  position: relative;
+  min-width: 230px;
+}
+.unknown-recommendations {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 14px 34px rgba(31, 29, 26, 0.14);
+  max-height: 320px;
+  overflow: auto;
+}
+.unknown-recommendation-item {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid #efe8dc;
+  border-radius: 0;
+  background: #fff;
+  color: var(--ink);
+  padding: 8px 9px;
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 10px;
+  align-items: center;
+  text-align: left;
+}
+.unknown-recommendation-item:last-child {
+  border-bottom: 0;
+}
+.unknown-recommendation-item:hover {
+  background: #f9f4eb;
+  filter: none;
+}
+.unknown-rec-photo-wrap {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: #f4ede2;
+  display: grid;
+  place-items: center;
+}
+.unknown-rec-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.unknown-rec-photo-fallback {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.unknown-rec-meta {
+  display: grid;
+  gap: 2px;
+}
+.unknown-rec-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.unknown-rec-job {
+  font-size: 12px;
+  color: var(--accent-2);
+}
+.unknown-rec-extra {
+  font-size: 11px;
+  color: var(--muted);
 }
 .image-link {
   color: var(--accent-2);
@@ -291,6 +418,17 @@ tr:hover td { background: rgba(0, 0, 0, 0.015); }
   max-height: 70vh;
   object-fit: contain;
   display: block;
+}
+.advanced-settings {
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #fbf8f1;
+}
+.advanced-settings > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 600;
 }
 
 @media (max-width: 900px) {

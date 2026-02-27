@@ -1,6 +1,9 @@
 const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
 let lastCreatedEmployeeId = null;
+let currentMainPhotoId = null;
+let currentEmployeeMeta = null;
 
 function employeeIdFromQuery() {
   const raw = new URLSearchParams(window.location.search).get('employee_id');
@@ -34,6 +37,24 @@ async function api(path, opts = {}) {
   return res.text();
 }
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function asIsoOrEmpty(value) {
+  if (!value) return '';
+  try {
+    return new Date(value).toISOString();
+  } catch {
+    return String(value);
+  }
+}
+
 function normalizeEmployeePayload(form) {
   const fd = new FormData(form);
   return {
@@ -49,9 +70,106 @@ function normalizeEmployeePayload(form) {
 function setUploadTargetEmployeeId(id) {
   const n = Number(id || 0);
   const hint = $('#uploadTargetHint');
+  const uploadBtn = $('#addEmployeeUploadBtn');
+  const clearMainBtn = $('#addEmployeeClearMainPhotoBtn');
   if (hint) {
     hint.textContent = n > 0 ? `Target Employee: ${n}` : 'Target Employee: not selected';
   }
+  if (uploadBtn) uploadBtn.disabled = n <= 0;
+  if (clearMainBtn) clearMainBtn.disabled = n <= 0;
+}
+
+function renderCurrentEmployeeMeta() {
+  const meta = $('#addEmployeeCreatedMeta');
+  if (!meta) return;
+  const id = Number(lastCreatedEmployeeId || 0);
+  if (!id || !currentEmployeeMeta) {
+    meta.textContent = 'No employee selected yet.';
+    return;
+  }
+  const name = currentEmployeeMeta.full_name || '-';
+  const code = currentEmployeeMeta.employee_code || '-';
+  meta.textContent = `Current Employee: ID ${id} | ${name} | Code ${code}`;
+}
+
+function renderUploadedPhotoGrid(employee) {
+  const grid = $('#addEmployeePhotoGrid');
+  const summary = $('#addEmployeePhotosSummary');
+  if (!grid || !summary) return;
+
+  const photos = Array.isArray(employee?.uploaded_images) ? employee.uploaded_images : [];
+  currentMainPhotoId = employee?.main_photo_id ?? null;
+
+  if (!photos.length) {
+    summary.textContent = 'No uploaded pictures';
+    grid.innerHTML = '<div class="empty-box">No uploaded pictures yet. Upload face/reid images first.</div>';
+    return;
+  }
+
+  const faceCount = photos.filter((x) => x.kind === 'face').length;
+  const reidCount = photos.filter((x) => x.kind === 'reid').length;
+  summary.textContent = `Total ${photos.length} | Face ${faceCount} | ReID ${reidCount} | Main ${currentMainPhotoId || '-'}`;
+
+  grid.innerHTML = photos.map((p) => {
+    const url = p.media_url || '';
+    const isMain = Number(p.id) === Number(currentMainPhotoId || 0);
+    return `
+      <div class="photo-card">
+        <a href="${escapeHtml(url)}" target="_blank">
+          <img loading="lazy" src="${escapeHtml(url)}" alt="${escapeHtml(p.original_filename || 'uploaded photo')}" />
+        </a>
+        <div class="photo-meta">
+          <div>
+            <span class="pill">${escapeHtml((p.kind || '').toUpperCase())}</span>
+            ${isMain ? '<span class="pill">MAIN</span>' : ''}
+          </div>
+          <div title="${escapeHtml(p.original_filename || '')}">${escapeHtml(p.original_filename || '(no name)')}</div>
+          <div>${escapeHtml(asIsoOrEmpty(p.created_at))}</div>
+          <div class="controls">
+            <button type="button" data-add-set-main-photo-id="${p.id}" ${isMain ? 'disabled' : ''}>${isMain ? 'Main' : 'Set Main'}</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  $$('#addEmployeePhotoGrid button[data-add-set-main-photo-id]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const employeeId = Number(lastCreatedEmployeeId || 0);
+      const photoId = Number(btn.dataset.addSetMainPhotoId || 0);
+      const result = $('#addEmployeeUploadResult');
+      if (!employeeId || !photoId) return;
+      btn.disabled = true;
+      try {
+        const data = await api(`/employees/${employeeId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ main_photo_id: photoId }),
+        });
+        if (result) result.textContent = JSON.stringify(data, null, 2);
+        await loadCurrentEmployeeDetails();
+        setStatus(`Set main picture for employee ${employeeId}`, true);
+      } catch (err) {
+        if (result) result.textContent = `ERROR: ${err.message}`;
+        setStatus('Set main picture failed', false);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  });
+}
+
+async function loadCurrentEmployeeDetails() {
+  const employeeId = Number(lastCreatedEmployeeId || 0);
+  if (!employeeId) {
+    renderUploadedPhotoGrid({ uploaded_images: [], main_photo_id: null });
+    return null;
+  }
+  const data = await api(`/employees/${employeeId}`);
+  currentEmployeeMeta = data;
+  renderUploadedPhotoGrid(data);
+  renderCurrentEmployeeMeta();
+  return data;
 }
 
 function bind() {
@@ -60,6 +178,11 @@ function bind() {
     lastCreatedEmployeeId = queryId;
     setStatus(`Using employee ${queryId}`, true);
     setUploadTargetEmployeeId(queryId);
+    loadCurrentEmployeeDetails().catch(() => {});
+  } else {
+    setUploadTargetEmployeeId(null);
+    renderUploadedPhotoGrid({ uploaded_images: [], main_photo_id: null });
+    renderCurrentEmployeeMeta();
   }
 
   $('#addEmployeeForm')?.addEventListener('submit', async (e) => {
@@ -79,10 +202,13 @@ function bind() {
         body: JSON.stringify(payload),
       });
       lastCreatedEmployeeId = Number(data?.id || 0) || null;
+      currentEmployeeMeta = data;
       if (result) {
         result.textContent = `Employee created successfully.\n${JSON.stringify(data, null, 2)}`;
       }
       setUploadTargetEmployeeId(lastCreatedEmployeeId);
+      renderCurrentEmployeeMeta();
+      await loadCurrentEmployeeDetails();
       setStatus(`Created employee ${lastCreatedEmployeeId || ''}`.trim(), true);
       form.reset();
     } catch (err) {
@@ -137,6 +263,7 @@ function bind() {
       lastCreatedEmployeeId = employeeId;
       setUploadTargetEmployeeId(employeeId);
       if (result) result.textContent = JSON.stringify(data, null, 2);
+      await loadCurrentEmployeeDetails();
       setStatus(`Upload complete for employee ${employeeId}`, true);
     } catch (err) {
       if (result) result.textContent = `ERROR: ${err.message}`;
@@ -151,6 +278,29 @@ function bind() {
         statusWrap.classList.remove('active');
         window.setTimeout(() => statusWrap.classList.add('hidden'), 600);
       }
+    }
+  });
+
+  $('#addEmployeeClearMainPhotoBtn')?.addEventListener('click', async () => {
+    const employeeId = Number(lastCreatedEmployeeId || 0);
+    const result = $('#addEmployeeUploadResult');
+    if (!employeeId) {
+      if (result) result.textContent = 'Add employee first.';
+      setStatus('Clear main picture failed', false);
+      return;
+    }
+    try {
+      const data = await api(`/employees/${employeeId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ main_photo_id: null }),
+      });
+      if (result) result.textContent = JSON.stringify(data, null, 2);
+      await loadCurrentEmployeeDetails();
+      setStatus(`Cleared main picture for employee ${employeeId}`, true);
+    } catch (err) {
+      if (result) result.textContent = `ERROR: ${err.message}`;
+      setStatus('Clear main picture failed', false);
     }
   });
 }

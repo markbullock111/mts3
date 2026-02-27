@@ -3,7 +3,14 @@ const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
 const state = {
   selectedEmployeeId: null,
+  mainPhotoId: null,
 };
+
+function dateStrOffset(days = 0) {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + Number(days || 0));
+  return d.toISOString().slice(0, 10);
+}
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -76,7 +83,7 @@ function setHealth(text, ok = true) {
   badge.style.color = ok ? '#2b7a4b' : '#a63c24';
 }
 
-function renderEmployeePhotos(items = []) {
+function renderEmployeePhotos(items = [], mainPhotoId = null) {
   const grid = $('#employeePhotoGrid');
   const summary = $('#employeePhotosSummary');
   const result = $('#employeePhotoActionResult');
@@ -91,22 +98,53 @@ function renderEmployeePhotos(items = []) {
 
   const faceCount = items.filter((x) => x.kind === 'face').length;
   const reidCount = items.filter((x) => x.kind === 'reid').length;
-  summary.textContent = `Total ${items.length} | Face ${faceCount} | ReID ${reidCount}`;
+  summary.textContent = `Total ${items.length} | Face ${faceCount} | ReID ${reidCount} | Main ${mainPhotoId || '-'}`;
   grid.innerHTML = items.map((p) => {
     const url = p.media_url || '';
+    const isMain = Number(p.id) === Number(mainPhotoId || 0);
     return `
       <div class="photo-card">
         <a href="${escapeHtml(url)}" target="_blank">
           <img loading="lazy" src="${escapeHtml(url)}" alt="${escapeHtml(p.original_filename || 'uploaded photo')}" />
         </a>
         <div class="photo-meta">
-          <div><span class="pill">${escapeHtml((p.kind || '').toUpperCase())}</span></div>
+          <div>
+            <span class="pill">${escapeHtml((p.kind || '').toUpperCase())}</span>
+            ${isMain ? '<span class="pill">MAIN</span>' : ''}
+          </div>
           <div title="${escapeHtml(p.original_filename || '')}">${escapeHtml(p.original_filename || '(no name)')}</div>
           <div>${escapeHtml(asIsoOrEmpty(p.created_at))}</div>
-          <div><button type="button" class="danger-btn" data-photo-delete-id="${p.id}">Remove</button></div>
+          <div class="controls">
+            <button type="button" data-photo-set-main-id="${p.id}" ${isMain ? 'disabled' : ''}>${isMain ? 'Main' : 'Set Main'}</button>
+            <button type="button" class="danger-btn" data-photo-delete-id="${p.id}">Remove</button>
+          </div>
         </div>
       </div>`;
   }).join('');
+
+  $$('#employeePhotoGrid button[data-photo-set-main-id]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const employeeId = Number(state.selectedEmployeeId);
+      const photoId = Number(btn.dataset.photoSetMainId);
+      if (!employeeId || !photoId) return;
+      btn.disabled = true;
+      try {
+        const data = await api(`/employees/${employeeId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ main_photo_id: photoId }),
+        });
+        if (result) result.textContent = JSON.stringify(data, null, 2);
+        await loadEmployeeDetail(employeeId);
+        setHealth(`Updated main picture for employee ${employeeId}`, true);
+      } catch (err) {
+        if (result) result.textContent = `ERROR: ${err.message}`;
+        setHealth(`Set main picture failed: ${err.message}`, false);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  });
 
   $$('#employeePhotoGrid button[data-photo-delete-id]').forEach((btn) => {
     btn.addEventListener('click', async () => {
@@ -179,6 +217,7 @@ function fillEmployeeDetailForm(data) {
       `Face emb ${data.face_embeddings_count ?? 0}`,
       `ReID emb ${data.reid_embeddings_count ?? 0}`,
       `Photos ${data.uploaded_images_count ?? 0}`,
+      `Main ${data.main_photo_id ?? '-'}`,
     ].join(' | ');
   }
 
@@ -188,13 +227,15 @@ function fillEmployeeDetailForm(data) {
   const result = $('#employeeDetailResult');
   if (result) result.textContent = JSON.stringify(data, null, 2);
 
+  state.mainPhotoId = data.main_photo_id ?? null;
+
   if (data.history_default_date_from && $('#employeeHistoryDateFrom')) {
     $('#employeeHistoryDateFrom').value = data.history_default_date_from;
   }
   if (data.history_default_date_to && $('#employeeHistoryDateTo')) {
     $('#employeeHistoryDateTo').value = data.history_default_date_to;
   }
-  renderEmployeePhotos(data.uploaded_images || []);
+  renderEmployeePhotos(data.uploaded_images || [], state.mainPhotoId);
 }
 
 async function loadEmployeeDetail(employeeId) {
@@ -215,6 +256,13 @@ function bind() {
   $('#backToAdminBtn')?.addEventListener('click', () => {
     window.location.href = '/ui/';
   });
+  $('#openEnrollmentFromDetailBtn')?.addEventListener('click', () => {
+    const id = Number(state.selectedEmployeeId || 0);
+    const url = id > 0
+      ? `/ui/enrollment.html?employee_id=${encodeURIComponent(String(id))}`
+      : '/ui/enrollment.html';
+    window.location.href = url;
+  });
 
   $('#loadEmployeeDetailBtn')?.addEventListener('click', async () => {
     const id = Number($('#detailEmployeeIdInput')?.value);
@@ -232,6 +280,17 @@ function bind() {
 
   $('#loadEmployeeHistoryBtn')?.addEventListener('click', () => {
     loadEmployeeHistory().catch((err) => {
+      setHealth(`History load failed: ${err.message}`, false);
+      alert(`Load history failed: ${err.message}`);
+    });
+  });
+
+  $('#employeeHistoryLast7Btn')?.addEventListener('click', async () => {
+    const from = dateStrOffset(-6);
+    const to = dateStrOffset(0);
+    if ($('#employeeHistoryDateFrom')) $('#employeeHistoryDateFrom').value = from;
+    if ($('#employeeHistoryDateTo')) $('#employeeHistoryDateTo').value = to;
+    await loadEmployeeHistory().catch((err) => {
       setHealth(`History load failed: ${err.message}`, false);
       alert(`Load history failed: ${err.message}`);
     });
@@ -302,6 +361,28 @@ function bind() {
       }
     }
   });
+
+  $('#clearMainPhotoBtn')?.addEventListener('click', async () => {
+    const employeeId = Number(state.selectedEmployeeId);
+    const result = $('#employeePhotoActionResult');
+    if (!employeeId) {
+      alert('Load an employee first');
+      return;
+    }
+    try {
+      const data = await api(`/employees/${employeeId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ main_photo_id: null }),
+      });
+      if (result) result.textContent = JSON.stringify(data, null, 2);
+      await loadEmployeeDetail(employeeId);
+      setHealth(`Cleared main picture for employee ${employeeId}`, true);
+    } catch (err) {
+      if (result) result.textContent = `ERROR: ${err.message}`;
+      setHealth(`Clear main picture failed: ${err.message}`, false);
+    }
+  });
 }
 
 async function init() {
@@ -309,6 +390,7 @@ async function init() {
   const id = getEmployeeIdFromQuery();
   if (!id) {
     setHealth('Ready', true);
+    $('#detailEmployeeIdInput')?.focus();
     return;
   }
   if ($('#detailEmployeeIdInput')) $('#detailEmployeeIdInput').value = String(id);

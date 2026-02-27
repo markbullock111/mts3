@@ -6,7 +6,10 @@ const state = {
   employees: [],
   cameras: [],
   employeesSearchQuery: '',
+  employeesSortBy: 'id',
+  employeesSortDir: 'asc',
   attendanceSummaryRows: [],
+  attendanceSummaryQuery: '',
   attendanceSelectedDate: '',
   attendanceTargetTime: '09:00',
   attendancePolicy: {
@@ -147,21 +150,54 @@ function eventImageThumb(r, label = 'snapshot') {
   return `<a class="image-link image-thumb-link" target="_blank" href="${escapeHtml(url)}"><img class="event-thumb" src="${escapeHtml(url)}" alt="${escapeHtml(label)}" loading="lazy" /></a>`;
 }
 
+function employeeMainThumb(r) {
+  const url = r.main_photo_url || r.main_photo?.media_url || '';
+  if (!url) return '<span class="muted">-</span>';
+  const alt = `${r.full_name || 'employee'} main picture`;
+  return `<a class="image-link image-thumb-link" target="_blank" href="${escapeHtml(url)}"><img class="event-thumb" src="${escapeHtml(url)}" alt="${escapeHtml(alt)}" loading="lazy" /></a>`;
+}
+
+function employeePhotoUrl(r) {
+  return r?.main_photo_url || r?.main_photo?.media_url || '';
+}
+
+function employeeInitial(r) {
+  const name = String(r?.full_name || '').trim();
+  if (!name) return '?';
+  return name.slice(0, 1).toUpperCase();
+}
+
 async function loadEmployees() {
+  renderTableRows($('#employeesTable tbody'), '<tr><td colspan="99">Loading employees...</td></tr>');
   const rows = await api('/employees');
   state.employees = rows;
   renderEmployeesTable();
+  renderAttendanceEmployeeOptions();
 }
 
 function getFilteredEmployees() {
   const q = String(state.employeesSearchQuery || '').trim().toLowerCase();
-  if (!q) return [...(state.employees || [])];
-  return (state.employees || []).filter(r => {
+  const filtered = !q ? [...(state.employees || [])] : (state.employees || []).filter(r => {
     const idStr = String(r.id ?? '').toLowerCase();
     const code = String(r.employee_code ?? '').toLowerCase();
     const name = String(r.full_name ?? '').toLowerCase();
     return idStr.includes(q) || code.includes(q) || name.includes(q);
   });
+  const sortBy = String(state.employeesSortBy || 'id');
+  const dir = state.employeesSortDir === 'desc' ? -1 : 1;
+  filtered.sort((a, b) => {
+    if (sortBy === 'name') {
+      return String(a.full_name || '').localeCompare(String(b.full_name || ''), undefined, { sensitivity: 'base' }) * dir;
+    }
+    if (sortBy === 'code') {
+      return String(a.employee_code || '').localeCompare(String(b.employee_code || ''), undefined, { sensitivity: 'base' }) * dir;
+    }
+    if (sortBy === 'status') {
+      return String(a.status || '').localeCompare(String(b.status || ''), undefined, { sensitivity: 'base' }) * dir;
+    }
+    return (Number(a.id || 0) - Number(b.id || 0)) * dir;
+  });
+  return filtered;
 }
 
 function renderEmployeesTable() {
@@ -174,6 +210,7 @@ function renderEmployeesTable() {
         <td>${r.id}</td>
         <td>${escapeHtml(r.employee_code)}</td>
         <td>${escapeHtml(r.full_name)}</td>
+        <td>${employeeMainThumb(r)}</td>
         <td>${escapeHtml(r.birth_date || '')}</td>
         <td>${escapeHtml(r.job_title || '')}</td>
         <td>${escapeHtml(r.status)}</td>
@@ -197,6 +234,30 @@ function renderEmployeesTable() {
   if (hint && q && !rows.length) {
     hint.textContent = `No employees found for search: ${q}`;
   }
+  const stats = $('#employeesStats');
+  if (stats) {
+    const total = Array.isArray(state.employees) ? state.employees.length : 0;
+    stats.textContent = q
+      ? `Showing ${rows.length} of ${total} employees`
+      : `Total employees: ${total}`;
+  }
+}
+
+function renderAttendanceEmployeeOptions() {
+  const dl = $('#attendanceEmployeeOptions');
+  if (!dl) return;
+  const rows = Array.isArray(state.employees) ? state.employees : [];
+  dl.innerHTML = rows.map((e) => {
+    const id = Number(e.id);
+    const name = String(e.full_name || '').trim();
+    const code = String(e.employee_code || '').trim();
+    const label = [name, code].filter(Boolean).join(' | ');
+    return [
+      `<option value="${escapeHtml(String(id))}" label="${escapeHtml(label)}"></option>`,
+      `<option value="${escapeHtml(name)}" label="${escapeHtml(`ID ${id}${code ? ` | ${code}` : ''}`)}"></option>`,
+      code ? `<option value="${escapeHtml(code)}" label="${escapeHtml(`ID ${id} | ${name}`)}"></option>` : '',
+    ].join('');
+  }).join('');
 }
 
 async function ensureEmployeesLoaded() {
@@ -212,6 +273,8 @@ function bindEmployeeForm() {
   const refreshBtn = $('#refreshEmployeesBtn');
   const searchInput = $('#employeesSearchInput');
   const clearBtn = $('#clearEmployeesSearchBtn');
+  const sortByInput = $('#employeesSortBy');
+  const sortDirInput = $('#employeesSortDir');
 
   if (openAddBtn) {
     openAddBtn.addEventListener('click', () => {
@@ -250,6 +313,14 @@ function bindEmployeeForm() {
   clearBtn?.addEventListener('click', () => {
     state.employeesSearchQuery = '';
     if (searchInput) searchInput.value = '';
+    renderEmployeesTable();
+  });
+  sortByInput?.addEventListener('change', (e) => {
+    state.employeesSortBy = String(e.target.value || 'id');
+    renderEmployeesTable();
+  });
+  sortDirInput?.addEventListener('change', (e) => {
+    state.employeesSortDir = String(e.target.value || 'asc');
     renderEmployeesTable();
   });
 }
@@ -503,6 +574,7 @@ async function loadEvents() {
   if (state.attendanceLoading) return;
   state.attendanceLoading = true;
   const date = $('#eventsDate').value || todayStr();
+  renderTableRows($('#attendanceSummaryTable tbody'), '<tr><td colspan="99">Loading attendance...</td></tr>');
   try {
     const rows = await api(`/events?date=${date}`);
     await renderAttendanceSummary(rows, date);
@@ -603,17 +675,187 @@ function sortAttendanceSummaryRows(rows, sortBy, sortDir) {
   return out;
 }
 
+function filterAttendanceSummaryRows(rows, query) {
+  const q = String(query || '').trim().toLowerCase();
+  if (!q) return [...(rows || [])];
+  return (rows || []).filter((r) => {
+    const name = String(r.full_name || '').toLowerCase();
+    const code = String(r.employee_code || '').toLowerCase();
+    const method = String(r.method || '').toLowerCase();
+    const status = String(r.status || '').toLowerCase();
+    return name.includes(q) || code.includes(q) || method.includes(q) || status.includes(q);
+  });
+}
+
+function renderAttendanceMetrics(rows, targetMs) {
+  const list = rows || [];
+  let recognized = 0;
+  let unknown = 0;
+  let onTime = 0;
+  let late = 0;
+  for (const r of list) {
+    if (r.is_unknown) {
+      unknown += 1;
+      continue;
+    }
+    recognized += 1;
+    if (!r.entrance_ts) continue;
+    const enteredMs = new Date(r.entrance_ts).getTime();
+    if (!Number.isFinite(enteredMs) || !Number.isFinite(targetMs)) continue;
+    if (enteredMs <= targetMs) onTime += 1;
+    else late += 1;
+  }
+  const rowsEl = $('#attendanceMetricRows');
+  const recognizedEl = $('#attendanceMetricRecognized');
+  const unknownEl = $('#attendanceMetricUnknown');
+  const onTimeEl = $('#attendanceMetricOnTime');
+  const lateEl = $('#attendanceMetricLate');
+  if (rowsEl) rowsEl.textContent = String(list.length);
+  if (recognizedEl) recognizedEl.textContent = String(recognized);
+  if (unknownEl) unknownEl.textContent = String(unknown);
+  if (onTimeEl) onTimeEl.textContent = String(onTime);
+  if (lateEl) lateEl.textContent = String(late);
+}
+
+function findEmployeeRecommendations(query, limit = 6) {
+  const q = String(query || '').trim().toLowerCase();
+  const rows = Array.isArray(state.employees) ? state.employees : [];
+  const scored = [];
+  for (const emp of rows) {
+    const id = String(emp?.id ?? '');
+    const code = String(emp?.employee_code || '').toLowerCase();
+    const name = String(emp?.full_name || '').toLowerCase();
+    let score = 0;
+
+    if (!q) {
+      score = 1;
+    } else if (id === q) {
+      score = 220;
+    } else if (name === q) {
+      score = 210;
+    } else if (code === q) {
+      score = 200;
+    } else if (name.startsWith(q)) {
+      score = 160;
+    } else if (code.startsWith(q)) {
+      score = 140;
+    } else if (id.startsWith(q)) {
+      score = 130;
+    } else if (name.includes(q)) {
+      score = 110;
+    } else if (code.includes(q)) {
+      score = 90;
+    } else if (id.includes(q)) {
+      score = 70;
+    }
+
+    if (score > 0) scored.push({ emp, score });
+  }
+
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return String(a.emp?.full_name || '').localeCompare(String(b.emp?.full_name || ''), undefined, { sensitivity: 'base' });
+  });
+  return scored.slice(0, Math.max(1, limit)).map((x) => x.emp);
+}
+
+function hideUnknownRecommendationPanels(exceptEventId = 0) {
+  $$('#attendanceSummaryTable [data-summary-unknown-recommendations]').forEach((panel) => {
+    const eventId = Number(panel.dataset.summaryUnknownRecommendations || 0);
+    if (exceptEventId && eventId === exceptEventId) return;
+    panel.classList.add('hidden');
+    panel.innerHTML = '';
+  });
+}
+
+function recommendationValueLabel(emp) {
+  const id = Number(emp?.id || 0);
+  const name = String(emp?.full_name || '').trim();
+  return `ID ${id} | ${name}`;
+}
+
+function renderUnknownRecommendationPanel(eventId, query) {
+  const panel = $(`#attendanceSummaryTable [data-summary-unknown-recommendations="${eventId}"]`);
+  if (!panel) return;
+  const list = findEmployeeRecommendations(query, 6);
+  if (!list.length) {
+    panel.classList.add('hidden');
+    panel.innerHTML = '';
+    return;
+  }
+
+  panel.innerHTML = list.map((emp) => {
+    const photoUrl = employeePhotoUrl(emp);
+    const job = String(emp?.job_title || '').trim() || '-';
+    const code = String(emp?.employee_code || '').trim();
+    return `
+      <button type="button" class="unknown-recommendation-item" data-summary-unknown-pick-event="${eventId}" data-summary-unknown-pick-employee="${emp.id}">
+        <span class="unknown-rec-photo-wrap">
+          ${photoUrl
+            ? `<img class="unknown-rec-photo" src="${escapeHtml(photoUrl)}" alt="${escapeHtml(emp?.full_name || 'employee')}" loading="lazy" />`
+            : `<span class="unknown-rec-photo-fallback">${escapeHtml(employeeInitial(emp))}</span>`}
+        </span>
+        <span class="unknown-rec-meta">
+          <span class="unknown-rec-name">${escapeHtml(emp?.full_name || '')}</span>
+          <span class="unknown-rec-job">${escapeHtml(job)}</span>
+          <span class="unknown-rec-extra">ID ${escapeHtml(String(emp?.id ?? ''))}${code ? ` | ${escapeHtml(code)}` : ''}</span>
+        </span>
+      </button>
+    `;
+  }).join('');
+
+  panel.classList.remove('hidden');
+  panel.querySelectorAll('[data-summary-unknown-pick-employee]').forEach((btn) => {
+    btn.addEventListener('mousedown', (ev) => ev.preventDefault());
+    btn.addEventListener('click', () => {
+      const employeeId = Number(btn.dataset.summaryUnknownPickEmployee || 0);
+      if (!employeeId) return;
+      const input = $(`#attendanceSummaryTable input[data-summary-unknown-input="${eventId}"]`);
+      const emp = (state.employees || []).find((e) => Number(e.id) === employeeId);
+      if (input) {
+        input.value = recommendationValueLabel(emp || { id: employeeId, full_name: '' });
+      }
+      hideUnknownRecommendationPanels();
+    });
+  });
+}
+
+function bindUnknownOverrideRecommendationInputs() {
+  $$('#attendanceSummaryTable input[data-summary-unknown-input]').forEach((input) => {
+    const eventId = Number(input.dataset.summaryUnknownInput || 0);
+    if (!eventId) return;
+
+    const refresh = () => {
+      hideUnknownRecommendationPanels(eventId);
+      renderUnknownRecommendationPanel(eventId, input.value);
+    };
+
+    input.addEventListener('focus', refresh);
+    input.addEventListener('input', refresh);
+    input.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape') {
+        hideUnknownRecommendationPanels();
+      }
+    });
+    input.addEventListener('blur', () => {
+      window.setTimeout(() => hideUnknownRecommendationPanels(), 120);
+    });
+  });
+}
+
 function renderAttendanceSummaryTable() {
   const sortBy = $('#attendanceSummarySortBy')?.value || 'time';
   const sortDir = $('#attendanceSummarySortDir')?.value || 'asc';
-  const rows = sortAttendanceSummaryRows(state.attendanceSummaryRows || [], sortBy, sortDir);
+  const filteredRows = filterAttendanceSummaryRows(state.attendanceSummaryRows || [], state.attendanceSummaryQuery);
+  const rows = sortAttendanceSummaryRows(filteredRows, sortBy, sortDir);
   const dateStr = String(state.attendanceSelectedDate || todayStr());
   const target = normalizeTimeHHMM(state.attendanceTargetTime, '09:00');
   const targetMs = targetUtcMs(dateStr, target);
+  renderAttendanceMetrics(rows, targetMs);
   renderTableRows(
     $('#attendanceSummaryTable tbody'),
     rows.map(r => `
-      <tr>
+      <tr class="${r.is_unknown ? 'row-unknown' : ''}">
         <td>${escapeHtml(r.full_name)}</td>
         <td>${escapeHtml(r.employee_code)}</td>
         <td>${
@@ -633,9 +875,12 @@ function renderAttendanceSummaryTable() {
         <td>${eventImageThumb(r, `${r.full_name || 'event'} snapshot`)}</td>
         <td>${
           r.is_unknown && r.source_event_id
-            ? `<div class="controls">
-                <input class="small-input" data-summary-unknown-input="${r.source_event_id}" type="number" min="1" placeholder="employee id" />
-                <button type="button" data-summary-unknown-override="${r.source_event_id}">Override</button>
+            ? `<div class="unknown-override-wrap">
+                <div class="controls">
+                  <input class="small-input" data-summary-unknown-input="${r.source_event_id}" type="text" placeholder="id or name" autocomplete="off" />
+                  <button type="button" data-summary-unknown-override="${r.source_event_id}">Override</button>
+                </div>
+                <div class="unknown-recommendations hidden" data-summary-unknown-recommendations="${r.source_event_id}"></div>
               </div>`
             : '<span class="muted">-</span>'
         }</td>
@@ -647,11 +892,12 @@ function renderAttendanceSummaryTable() {
       const eventId = Number(btn.dataset.summaryUnknownOverride || 0);
       if (!eventId) return;
       const input = $(`#attendanceSummaryTable input[data-summary-unknown-input="${eventId}"]`);
-      const employeeId = Number(input?.value || 0);
-      if (!employeeId) {
-        alert('Enter employee ID');
+      const resolved = resolveEmployeeInputToId(input?.value || '');
+      if (!resolved.ok) {
+        alert(resolved.message);
         return;
       }
+      const employeeId = resolved.employeeId;
       btn.disabled = true;
       try {
         await api(`/events/${eventId}/override`, {
@@ -667,6 +913,7 @@ function renderAttendanceSummaryTable() {
       }
     });
   });
+  bindUnknownOverrideRecommendationInputs();
 }
 
 async function renderAttendanceSummary(events, dateStr) {
@@ -695,6 +942,10 @@ function bindAttendance() {
   $('#loadEventsBtn').addEventListener('click', () => {
     const date = $('#eventsDate').value || todayStr();
     openAttendanceDateTab(date);
+  });
+  $('#attendanceTodayBtn')?.addEventListener('click', async () => {
+    $('#eventsDate').value = todayStr();
+    await loadEvents().catch(err => alert(err.message));
   });
   $('#refreshTodayBtn').addEventListener('click', async () => {
     $('#eventsDate').value = todayStr();
@@ -760,6 +1011,16 @@ function bindAttendance() {
   });
   $('#attendanceSummarySortBy').addEventListener('change', () => renderAttendanceSummaryTable());
   $('#attendanceSummarySortDir').addEventListener('change', () => renderAttendanceSummaryTable());
+  $('#attendanceSummarySearchInput')?.addEventListener('input', (e) => {
+    state.attendanceSummaryQuery = String(e.target.value || '');
+    renderAttendanceSummaryTable();
+  });
+  $('#clearAttendanceSearchBtn')?.addEventListener('click', () => {
+    state.attendanceSummaryQuery = '';
+    const input = $('#attendanceSummarySearchInput');
+    if (input) input.value = '';
+    renderAttendanceSummaryTable();
+  });
 
   const autoRefreshCheckbox = $('#attendanceAutoRefresh');
   const startAutoRefresh = () => {
@@ -776,6 +1037,53 @@ function bindAttendance() {
   };
   autoRefreshCheckbox?.addEventListener('change', startAutoRefresh);
   startAutoRefresh();
+
+  document.addEventListener('click', (ev) => {
+    const target = ev.target;
+    if (!(target instanceof Element)) {
+      hideUnknownRecommendationPanels();
+      return;
+    }
+    if (!target.closest('.unknown-override-wrap')) {
+      hideUnknownRecommendationPanels();
+    }
+  });
+}
+
+function resolveEmployeeInputToId(raw) {
+  const value = String(raw || '').trim();
+  if (!value) return { ok: false, message: 'Enter employee ID or name.' };
+
+  const rows = Array.isArray(state.employees) ? state.employees : [];
+  if (!rows.length) return { ok: false, message: 'Employee list is not loaded yet.' };
+
+  if (/^\d+$/.test(value)) {
+    const id = Number(value);
+    const exists = rows.some((e) => Number(e.id) === id);
+    return exists ? { ok: true, employeeId: id } : { ok: false, message: `Employee ID ${id} not found.` };
+  }
+
+  const idToken = value.match(/\bID\s*[:#-]?\s*(\d+)\b/i);
+  if (idToken) {
+    const id = Number(idToken[1]);
+    const exists = rows.some((e) => Number(e.id) === id);
+    return exists ? { ok: true, employeeId: id } : { ok: false, message: `Employee ID ${id} not found.` };
+  }
+
+  const norm = value.toLowerCase();
+  const byName = rows.filter((e) => String(e.full_name || '').trim().toLowerCase() === norm);
+  if (byName.length === 1) return { ok: true, employeeId: Number(byName[0].id) };
+  if (byName.length > 1) {
+    return { ok: false, message: `Multiple employees found for name "${value}". Enter employee ID.` };
+  }
+
+  const byCode = rows.filter((e) => String(e.employee_code || '').trim().toLowerCase() === norm);
+  if (byCode.length === 1) return { ok: true, employeeId: Number(byCode[0].id) };
+  if (byCode.length > 1) {
+    return { ok: false, message: `Multiple employees found for code "${value}". Enter employee ID.` };
+  }
+
+  return { ok: false, message: `No employee matched "${value}". Use suggestions or enter employee ID.` };
 }
 
 function renderEmployeePhotos(items = []) {
@@ -1043,7 +1351,6 @@ async function init() {
   bindTabs();
   bindEmployeeForm();
   bindCameras();
-  bindEnrollmentForm();
   bindAttendance();
   bindSettings();
 
