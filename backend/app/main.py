@@ -397,15 +397,62 @@ class CameraPreviewWorker:
         return src
 
     @staticmethod
-    def _open_capture(source: str | int) -> cv2.VideoCapture:
+    def _configure_webcam_capture(cap: cv2.VideoCapture) -> None:
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+        cap.set(cv2.CAP_PROP_FPS, 30)
+        try:
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _warmup_capture(cap: cv2.VideoCapture, count: int = 5) -> None:
+        for _ in range(max(0, count)):
+            ok, _ = cap.read()
+            if not ok:
+                break
+
+    @staticmethod
+    def _is_blank_frame(frame: np.ndarray) -> bool:
+        if frame.size == 0:
+            return True
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        return float(gray.mean()) < 4.0 and float(gray.std()) < 4.0
+
+    @staticmethod
+    def _backend_name(backend_choice: int | None | str) -> str:
+        if backend_choice == cv2.CAP_DSHOW:
+            return "CAP_DSHOW"
+        if backend_choice == cv2.CAP_MSMF:
+            return "CAP_MSMF"
+        if backend_choice is None:
+            return "DEFAULT"
+        return str(backend_choice)
+
+    @staticmethod
+    def _open_capture(source: str | int, backend_choice: int | None | str = "auto") -> cv2.VideoCapture:
         if isinstance(source, int):
+            if os.name == "nt" and backend_choice != "auto":
+                cap = cv2.VideoCapture(source) if backend_choice is None else cv2.VideoCapture(source, backend_choice)
+                if cap.isOpened():
+                    CameraPreviewWorker._configure_webcam_capture(cap)
+                    CameraPreviewWorker._warmup_capture(cap)
+                return cap
             if os.name == "nt":
                 for backend in (cv2.CAP_DSHOW, cv2.CAP_MSMF, None):
                     cap = cv2.VideoCapture(source) if backend is None else cv2.VideoCapture(source, backend)
                     if cap.isOpened():
+                        CameraPreviewWorker._configure_webcam_capture(cap)
+                        CameraPreviewWorker._warmup_capture(cap)
                         return cap
                     cap.release()
-            return cv2.VideoCapture(source)
+            cap = cv2.VideoCapture(source)
+            if cap.isOpened():
+                CameraPreviewWorker._configure_webcam_capture(cap)
+                CameraPreviewWorker._warmup_capture(cap)
+            return cap
 
         s = str(source).strip()
         if s.lower().startswith("rtsp://"):
@@ -459,15 +506,26 @@ class CameraPreviewWorker:
             return
         labels_by_track: dict[int, tuple[str, float]] = {}
         source = self._parse_camera_source(self.rtsp_url)
+        webcam_backends: list[int | None | str] = ["auto"]
+        backend_idx = 0
+        if isinstance(source, int) and os.name == "nt":
+            webcam_backends = [cv2.CAP_DSHOW, cv2.CAP_MSMF, None]
 
         while not self._stop.is_set():
-            cap = self._open_capture(source)
+            backend_choice = webcam_backends[backend_idx] if webcam_backends else "auto"
+            cap = self._open_capture(source, backend_choice=backend_choice)
             if not cap.isOpened():
-                self._publish_status_frame("Unable to open camera source", str(self.rtsp_url))
+                self._publish_status_frame(
+                    "Unable to open camera source",
+                    f"{self.rtsp_url} ({self._backend_name(backend_choice)})",
+                )
+                if len(webcam_backends) > 1:
+                    backend_idx = (backend_idx + 1) % len(webcam_backends)
                 pytime.sleep(1.0)
                 continue
 
             read_failures = 0
+            blank_failures = 0
 
             while not self._stop.is_set():
                 ok, frame = cap.read()
@@ -480,6 +538,18 @@ class CameraPreviewWorker:
                     pytime.sleep(0.03)
                     continue
                 read_failures = 0
+                if self._is_blank_frame(frame):
+                    blank_failures += 1
+                    if blank_failures >= 20:
+                        self._publish_status_frame(
+                            "Camera returned blank frames",
+                            f"{self.rtsp_url} ({self._backend_name(backend_choice)})",
+                        )
+                        pytime.sleep(0.2)
+                        break
+                    pytime.sleep(0.02)
+                    continue
+                blank_failures = 0
 
                 self._refresh_face_gallery()
                 dets = detector.detect(frame)
@@ -541,6 +611,8 @@ class CameraPreviewWorker:
                     self._put_latest_jpeg(enc.tobytes())
 
             cap.release()
+            if len(webcam_backends) > 1:
+                backend_idx = (backend_idx + 1) % len(webcam_backends)
 
     def mjpeg_generator(self):
         boundary = b"--frame\r\n"
