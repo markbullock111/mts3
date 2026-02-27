@@ -326,19 +326,56 @@ function isWebcamSource(source) {
 }
 
 async function requestBrowserCameraPermission(source) {
-  if (!isWebcamSource(source)) return true;
-  const hint = $('#cameraPreviewHint');
+  if (!isWebcamSource(source)) return { ok: true, skipped: true, message: '' };
+
+  // If browser already reports granted permission, skip active probing to avoid timeout noise.
+  if (navigator.permissions && typeof navigator.permissions.query === 'function') {
+    try {
+      const status = await navigator.permissions.query({ name: 'camera' });
+      if (status?.state === 'granted') {
+        return { ok: true, skipped: false, message: 'Browser camera permission already granted.' };
+      }
+      if (status?.state === 'denied') {
+        return {
+          ok: false,
+          skipped: false,
+          message: 'Browser camera permission is denied for this site.',
+        };
+      }
+    } catch {
+      // Ignore; not all browsers support querying camera permission.
+    }
+  }
+
   if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) {
-    if (hint) hint.textContent = 'This browser does not support camera permission requests (getUserMedia unavailable).';
-    return false;
+    return {
+      ok: false,
+      skipped: false,
+      message: 'This browser does not support camera permission requests (getUserMedia unavailable).',
+    };
   }
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    const mediaPromise = navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    const timeoutPromise = new Promise((_, reject) =>
+      window.setTimeout(() => reject(new Error('Timeout starting video source')), 5000)
+    );
+    const stream = await Promise.race([mediaPromise, timeoutPromise]);
     stream.getTracks().forEach(t => t.stop());
-    return true;
+    return { ok: true, skipped: false, message: '' };
   } catch (err) {
-    if (hint) hint.textContent = `Camera permission denied/blocked in browser: ${err?.message || err}. Allow camera access and try again.`;
-    return false;
+    const msg = String(err?.message || err || '').toLowerCase();
+    if (msg.includes('timeout')) {
+      return {
+        ok: false,
+        skipped: false,
+        message: 'Browser camera probe timed out.',
+      };
+    }
+    return {
+      ok: false,
+      skipped: false,
+      message: `Camera permission denied/blocked in browser: ${err?.message || err}.`,
+    };
   }
 }
 
@@ -346,15 +383,16 @@ async function startCameraPreview(cameraId, cameraSource = '') {
   const img = $('#cameraPreviewImg');
   const hint = $('#cameraPreviewHint');
   if (!img || !hint) return;
-  const allowed = await requestBrowserCameraPermission(cameraSource);
-  if (!allowed) {
-    img.removeAttribute('src');
-    img.dataset.activeCameraId = '';
-    return;
+  const perm = await requestBrowserCameraPermission(cameraSource);
+  if (!perm.ok && isWebcamSource(cameraSource)) {
+    // Browser permission is requested for UX, but backend stream may still work.
+    hint.textContent = `${perm.message} Trying backend preview anyway...`;
   }
   img.src = `/cameras/${cameraId}/preview.mjpeg?t=${Date.now()}`;
   img.dataset.activeCameraId = String(cameraId);
-  hint.textContent = `Live view for Camera ID ${cameraId}. Colored rectangles indicate tracked people; labels show recognized names when available.`;
+  if (perm.ok || !isWebcamSource(cameraSource)) {
+    hint.textContent = `Live view for Camera ID ${cameraId}. Colored rectangles indicate tracked people; labels show recognized names when available.`;
+  }
 }
 
 function stopCameraPreview() {
