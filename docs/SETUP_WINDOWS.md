@@ -119,7 +119,7 @@ PowerShell:
 ```powershell
 .\.venv\Scripts\Activate.ps1
 $env:PYTHONPATH = "."
-python alembic -c backend\alembic.ini upgrade head
+python -m alembic -c backend\alembic.ini upgrade head
 ```
 
 cmd.exe:
@@ -127,7 +127,7 @@ cmd.exe:
 ```cmd
 .venv\Scripts\activate.bat
 set PYTHONPATH=.
-python alembic -c backend\alembic.ini upgrade head
+python -m alembic -c backend\alembic.ini upgrade head
 ```
 
 ## 8) Run backend (FastAPI + UI)
@@ -262,7 +262,7 @@ Useful options:
 
 - After updating this repo, employee profile fields/photos table may require migrations:
 
-  - Run `alembic -c backend\\alembic.ini upgrade head` again
+  - Run `python -m alembic -c backend\\alembic.ini upgrade head` again
 
 - `ExecutionPolicy` blocks PowerShell venv activate:
   - Run PowerShell as current user and use:
