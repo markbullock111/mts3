@@ -34,6 +34,10 @@ class TrackMemory:
     crossed: bool = False
     finalized: bool = False
     posted: bool = False
+    resolved_employee_id: int | None = None
+    resolved_employee_name: str | None = None
+    resolved_method: str | None = None
+    resolved_confidence: float = 0.0
 
 
 class AttendancePipeline:
@@ -286,6 +290,10 @@ class AttendancePipeline:
                 employee_id = face_match.employee_id
                 method = "face"
                 confidence = float(face_match.score)
+                mem.resolved_employee_id = employee_id
+                mem.resolved_employee_name = (face_match.employee_name or "").strip() or None
+                mem.resolved_method = method
+                mem.resolved_confidence = confidence
             else:
                 try:
                     reid_match = self.reid_recognizer.identify_from_buffer(
@@ -300,6 +308,10 @@ class AttendancePipeline:
                     employee_id = reid_match.employee_id
                     method = "reid"
                     confidence = float(reid_match.score)
+                    mem.resolved_employee_id = employee_id
+                    mem.resolved_employee_name = (reid_match.employee_name or "").strip() or None
+                    mem.resolved_method = method
+                    mem.resolved_confidence = confidence
 
             event_ts = datetime.now(timezone.utc)
             if employee_id is not None:
@@ -363,7 +375,16 @@ class AttendancePipeline:
             mem = self.track_mem.get(tr.track_id)
             color = (0, 255, 0) if mem and mem.crossed else (255, 200, 0)
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-            label = f"ID {tr.track_id} {tr.conf:.2f}"
+            if mem and mem.resolved_employee_name:
+                label = mem.resolved_employee_name
+            elif mem and mem.resolved_employee_id is not None:
+                label = f"Employee {mem.resolved_employee_id}"
+            elif mem and mem.finalized:
+                label = "Unknown"
+            else:
+                label = "Detecting..."
+            if mem and mem.resolved_method:
+                label += f" ({mem.resolved_method}:{mem.resolved_confidence:.2f})"
             if mem and mem.finalized:
                 label += " [posted]" if mem.posted else " [finalized]"
             cv2.putText(frame, label, (x1, max(20, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
