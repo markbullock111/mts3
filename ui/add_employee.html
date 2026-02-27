@@ -45,9 +45,6 @@
           <div class="muted" id="uploadTargetHint">Target Employee: not selected</div>
         </div>
         <form id="addEmployeeUploadForm" class="grid-form">
-          <label>Employee ID
-            <input id="addEmployeeUploadEmployeeId" name="employee_id" type="number" min="1" placeholder="Create employee first or enter ID" required />
-          </label>
           <label>Mode
             <select name="kind">
               <option value="face">Face</option>
@@ -63,7 +60,7 @@
           <span class="spinner" aria-hidden="true"></span>
           <span id="addEmployeeUploadStatusText">Uploading...</span>
         </div>
-        <p class="hint">You can upload directly here without leaving this page.</p>
+        <p class="hint">Images uploaded here are applied to the employee created on this page.</p>
         <pre id="addEmployeeUploadResult" class="output"></pre>
       </div>
     </section>

@@ -175,6 +175,9 @@ button:disabled {
 .upload-status.hidden {
   display: none;
 }
+.hidden {
+  display: none !important;
+}
 .upload-status.active {
   border-color: rgba(32, 78, 91, 0.25);
   color: var(--accent-2);

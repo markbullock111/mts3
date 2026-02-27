@@ -48,9 +48,7 @@ function normalizeEmployeePayload(form) {
 
 function setUploadTargetEmployeeId(id) {
   const n = Number(id || 0);
-  const input = $('#addEmployeeUploadEmployeeId');
   const hint = $('#uploadTargetHint');
-  if (input && n > 0) input.value = String(n);
   if (hint) {
     hint.textContent = n > 0 ? `Target Employee: ${n}` : 'Target Employee: not selected';
   }
@@ -97,7 +95,7 @@ function bind() {
     e.preventDefault();
     const form = e.target;
     const fd = new FormData(form);
-    const employeeId = Number(fd.get('employee_id') || 0);
+    const employeeId = Number(lastCreatedEmployeeId || 0);
     const kind = String(fd.get('kind') || 'face').toLowerCase();
     const files = form.querySelector('input[name="files"]')?.files;
     const result = $('#addEmployeeUploadResult');
@@ -106,7 +104,7 @@ function bind() {
     const statusText = $('#addEmployeeUploadStatusText');
 
     if (!employeeId) {
-      if (result) result.textContent = 'Employee ID is required.';
+      if (result) result.textContent = 'Add employee first, then upload images.';
       setStatus('Upload failed', false);
       return;
     }

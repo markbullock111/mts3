@@ -28,12 +28,18 @@
         <form id="enrollmentForm" class="grid-form">
           <label>Employee ID <input type="number" name="employee_id" id="enrollEmployeeIdInput" min="1" required /></label>
           <label>Mode
-            <select name="kind">
+            <select name="mode" id="enrollModeSelect">
               <option value="face">Face</option>
               <option value="reid">ReID</option>
+              <option value="folder">Folder Batch</option>
             </select>
           </label>
-          <label class="full">Upload Photos <input type="file" name="files" accept="image/*" multiple required /></label>
+          <label id="enrollFilesWrap" class="full">Upload Photos
+            <input id="enrollFilesInput" name="files" type="file" accept="image/*" multiple required />
+          </label>
+          <label id="enrollFolderWrap" class="full hidden">Upload Folder (employee-name folders)
+            <input id="enrollFolderInput" type="file" webkitdirectory directory multiple />
+          </label>
           <button id="enrollSubmitBtn" type="submit">Upload Enrollment Images</button>
         </form>
         <div id="enrollUploadStatus" class="upload-status hidden" aria-live="polite">
@@ -41,7 +47,7 @@
           <span id="enrollUploadStatusText">Uploading...</span>
         </div>
         <p id="enrollTargetInfo" class="hint">Employee ID and mode will be shown during upload.</p>
-        <p class="hint">Use at least 5 face photos with varied angle/light. Prefix file name with <code>re_</code> for ReID images if batch importing by folders.</p>
+        <p class="hint">Folder mode: each folder name must be employee full name. Inside folder, files must start with <code>face_</code> or <code>re_</code> (case-insensitive).</p>
         <pre id="enrollResult" class="output"></pre>
       </div>
     </section>
