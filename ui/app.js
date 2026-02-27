@@ -506,7 +506,6 @@ async function loadEvents() {
   try {
     const rows = await api(`/events?date=${date}`);
     await renderAttendanceSummary(rows, date);
-    renderUnknownsTable(rows);
   } finally {
     state.attendanceLoading = false;
   }
@@ -562,6 +561,7 @@ function buildAttendanceSummaryRows(employees, events) {
   unknownRows.forEach((evt) => {
     rows.push({
       row_key: `unknown-${evt.id || evt.track_uid || Math.random()}`,
+      source_event_id: evt.id || null,
       employee_id: null,
       full_name: 'UNKNOWN',
       employee_code: '',
@@ -631,8 +631,42 @@ function renderAttendanceSummaryTable() {
         <td>${r.confidence == null ? '' : Number(r.confidence).toFixed(3)}</td>
         <td>${escapeHtml(r.status || '')}</td>
         <td>${eventImageThumb(r, `${r.full_name || 'event'} snapshot`)}</td>
+        <td>${
+          r.is_unknown && r.source_event_id
+            ? `<div class="controls">
+                <input class="small-input" data-summary-unknown-input="${r.source_event_id}" type="number" min="1" placeholder="employee id" />
+                <button type="button" data-summary-unknown-override="${r.source_event_id}">Override</button>
+              </div>`
+            : '<span class="muted">-</span>'
+        }</td>
       </tr>`).join('')
   );
+
+  $$('#attendanceSummaryTable button[data-summary-unknown-override]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const eventId = Number(btn.dataset.summaryUnknownOverride || 0);
+      if (!eventId) return;
+      const input = $(`#attendanceSummaryTable input[data-summary-unknown-input="${eventId}"]`);
+      const employeeId = Number(input?.value || 0);
+      if (!employeeId) {
+        alert('Enter employee ID');
+        return;
+      }
+      btn.disabled = true;
+      try {
+        await api(`/events/${eventId}/override`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ employee_id: employeeId }),
+        });
+        await loadEvents().catch(() => {});
+      } catch (err) {
+        alert(`Override failed: ${err.message}`);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  });
 }
 
 async function renderAttendanceSummary(events, dateStr) {
@@ -664,9 +698,6 @@ function bindAttendance() {
   });
   $('#refreshTodayBtn').addEventListener('click', async () => {
     $('#eventsDate').value = todayStr();
-    await loadEvents().catch(err => alert(err.message));
-  });
-  $('#loadUnknownsBtn').addEventListener('click', async () => {
     await loadEvents().catch(err => alert(err.message));
   });
   $('#exportCsvBtn').addEventListener('click', () => {
@@ -745,39 +776,6 @@ function bindAttendance() {
   };
   autoRefreshCheckbox?.addEventListener('change', startAutoRefresh);
   startAutoRefresh();
-}
-
-function renderUnknownsTable(rows) {
-  const unknowns = (rows || []).filter(r => r.method === 'unknown' || r.employee_id == null);
-  renderTableRows($('#unknownsTable tbody'), unknowns.map(r => `
-    <tr>
-      <td>${r.id}</td>
-      <td>${escapeHtml(asIsoOrEmpty(r.ts))}</td>
-      <td>${escapeHtml(r.method)}</td>
-      <td>${Number(r.confidence).toFixed(3)}</td>
-      <td>${escapeHtml(r.track_uid)}</td>
-      <td><input class="small-input" data-event-id="${r.id}" type="number" min="1" placeholder="employee id" /></td>
-      <td><button data-override-id="${r.id}">Override</button></td>
-    </tr>`).join(''));
-
-  $$('#unknownsTable button[data-override-id]').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const id = btn.dataset.overrideId;
-      const input = $(`#unknownsTable input[data-event-id="${id}"]`);
-      const employeeId = Number(input.value);
-      if (!employeeId) return alert('Enter employee ID');
-      try {
-        await api(`/events/${id}/override`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ employee_id: employeeId })
-        });
-        await loadEvents().catch(() => {});
-      } catch (err) {
-        alert(`Override failed: ${err.message}`);
-      }
-    });
-  });
 }
 
 function renderEmployeePhotos(items = []) {

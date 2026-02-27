@@ -150,6 +150,18 @@ function effectiveTargetTime(policy, dateStr) {
   return standard;
 }
 
+function targetTimeLabel(policy, dateStr) {
+  const standard = normalizeTimeHHMM(policy.standardTime, '09:00');
+  const hasOverrideForDate =
+    String(policy.overrideDate || '') === String(dateStr || '') &&
+    String(policy.overrideTime || '').trim().length > 0;
+  if (hasOverrideForDate) {
+    const setTime = normalizeTimeHHMM(policy.overrideTime, standard);
+    return `Set ${setTime} UTC (Standard ${standard} UTC)`;
+  }
+  return `Standard ${standard} UTC`;
+}
+
 async function loadDay(dateStr) {
   const status = $('#dayViewStatus');
   const hint = $('#dayViewHint');
@@ -169,6 +181,7 @@ async function loadDay(dateStr) {
       overrideTime: normalizeTimeHHMM(settings.attendance_today_override_time, ''),
     };
     const target = effectiveTargetTime(policy, dateStr);
+    const targetLabel = targetTimeLabel(policy, dateStr);
     const targetMs = targetUtcMs(dateStr, target);
     const rows = buildSummaryRows(employees || [], events || []);
     renderTableRows(
@@ -196,7 +209,7 @@ async function loadDay(dateStr) {
       `).join('')
     );
     title.textContent = `Attendance Summary (${dateStr})`;
-    hint.textContent = `Target attendance time: ${target} UTC | Rows: ${rows.length}`;
+    hint.textContent = `Attendance time: ${targetLabel} | Rows: ${rows.length}`;
     status.textContent = 'Loaded';
   } catch (err) {
     renderTableRows(tbody, '');
