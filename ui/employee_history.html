@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Employee Entrance History</title>
+  <link rel="stylesheet" href="/ui/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Employee Entrance History</h1>
+      <p>Historical check-in events for a selected employee</p>
+    </div>
+    <a class="link-btn" href="/ui/">Back To Admin</a>
+  </header>
+
+  <main class="history-main">
+    <section class="card">
+      <div class="row-between wrap">
+        <h2 id="historyEmployeeTitle">Employee</h2>
+        <div class="controls">
+          <button id="openNewTabBtn" type="button">Open Date Range In New Tab</button>
+          <button id="loadHereBtn" type="button">Load In This Tab</button>
+        </div>
+      </div>
+      <div id="historyEmployeeMeta" class="muted"></div>
+      <form id="historyFilterForm" class="grid-form">
+        <label>Employee ID
+          <input id="historyEmployeeId" type="number" min="1" required />
+        </label>
+        <label>From
+          <input id="historyDateFrom" type="date" />
+        </label>
+        <label>To
+          <input id="historyDateTo" type="date" />
+        </label>
+      </form>
+      <p class="hint">Set a date range and open results in a new browser tab. If no dates are set, this week is used by default.</p>
+      <pre id="historyStatus" class="output"></pre>
+    </section>
+
+    <section class="card">
+      <div class="row-between wrap">
+        <h2 id="historyRangeTitle">History Result</h2>
+        <div id="historyCount" class="muted">0 rows</div>
+      </div>
+      <div class="table-wrap">
+        <table id="historyTable">
+          <thead>
+            <tr>
+              <th>ID</th><th>Time (UTC)</th><th>Method</th><th>Confidence</th><th>Camera</th><th>Track</th><th>Snapshot</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="/ui/employee_history.js"></script>
+</body>
+</html>

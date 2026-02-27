@@ -145,16 +145,16 @@ function renderEmployeesTable() {
         <td>${r.face_embeddings_count ?? 0}</td>
         <td>${r.reid_embeddings_count ?? 0}</td>
         <td>${r.uploaded_images_count ?? 0}</td>
-        <td><button data-open-detail-id="${r.id}">Open</button></td>
+        <td><button data-open-history-id="${r.id}">History</button></td>
       </tr>`).join('')
   );
 
-  $$('#employeesTable button[data-open-detail-id]').forEach(btn => {
+  $$('#employeesTable button[data-open-history-id]').forEach(btn => {
     btn.addEventListener('click', () => {
-      const id = Number(btn.dataset.openDetailId);
+      const id = Number(btn.dataset.openHistoryId);
       if (!id) return;
-      $('#detailEmployeeIdInput').value = String(id);
-      setSelectedEmployee(id, { openTab: true });
+      const url = `/ui/employee_history.html?employee_id=${encodeURIComponent(String(id))}`;
+      window.open(url, '_blank', 'noopener,noreferrer');
     });
   });
 
@@ -643,34 +643,6 @@ function renderEmployeePhotos(items = []) {
   });
 }
 
-function renderEmployeeHistory(items = []) {
-  renderTableRows($('#employeeHistoryTable tbody'), items.map(r => `
-    <tr>
-      <td>${r.id}</td>
-      <td>${escapeHtml(asIsoOrEmpty(r.ts))}</td>
-      <td>${escapeHtml(r.method)}</td>
-      <td>${Number(r.confidence || 0).toFixed(3)}</td>
-      <td>${escapeHtml(r.camera_id || '')}</td>
-      <td>${escapeHtml(r.track_uid || '')}</td>
-      <td>${eventImageLink(r)}</td>
-    </tr>`).join(''));
-}
-
-async function loadEmployeeHistory() {
-  const employeeId = state.selectedEmployeeId;
-  if (!employeeId) {
-    renderEmployeeHistory([]);
-    return;
-  }
-  const from = $('#employeeHistoryDateFrom').value;
-  const to = $('#employeeHistoryDateTo').value;
-  const q = new URLSearchParams();
-  if (from) q.set('date_from', from);
-  if (to) q.set('date_to', to);
-  const data = await api(`/employees/${employeeId}/attendance?${q.toString()}`);
-  renderEmployeeHistory(data.items || []);
-}
-
 function fillEmployeeDetailForm(data) {
   const form = $('#employeeDetailForm');
   form.id.value = data.id ?? '';
@@ -691,16 +663,12 @@ function fillEmployeeDetailForm(data) {
 
   $('#employeeDetailHint').textContent = `Employee ${data.employee_code || ''} selected.`;
   $('#employeeDetailResult').textContent = JSON.stringify(data, null, 2);
-
-  if (data.history_default_date_from) $('#employeeHistoryDateFrom').value = data.history_default_date_from;
-  if (data.history_default_date_to) $('#employeeHistoryDateTo').value = data.history_default_date_to;
   renderEmployeePhotos(data.uploaded_images || []);
 }
 
 async function loadEmployeeDetail(employeeId) {
   const data = await api(`/employees/${employeeId}`);
   fillEmployeeDetailForm(data);
-  await loadEmployeeHistory();
   return data;
 }
 
@@ -725,10 +693,6 @@ function bindEmployeeDetails() {
     } catch (err) {
       alert(`Load employee failed: ${err.message}`);
     }
-  });
-
-  $('#loadEmployeeHistoryBtn').addEventListener('click', () => {
-    loadEmployeeHistory().catch(err => alert(`Load history failed: ${err.message}`));
   });
 
   $('#employeeDetailForm').addEventListener('submit', async (e) => {

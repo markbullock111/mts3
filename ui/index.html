@@ -16,17 +16,73 @@
   </header>
 
   <nav class="tabs">
-    <button data-tab="employees" class="active">Employees</button>
+    <button data-tab="attendance" class="active">Attendance</button>
+    <button data-tab="employees">Employees</button>
     <button data-tab="employee-details">Employee Details</button>
     <button data-tab="cameras">Cameras</button>
-    <button data-tab="enrollment">Enrollment</button>
-    <button data-tab="attendance">Attendance</button>
     <button data-tab="unknowns">Unknown Review</button>
     <button data-tab="settings">Settings</button>
   </nav>
 
   <main>
-    <section id="tab-employees" class="tab active">
+    <section id="tab-attendance" class="tab active">
+      <div class="card">
+        <div class="row-between wrap">
+          <h2>Attendance Dashboard</h2>
+          <div class="controls">
+            <label>Date <input type="date" id="eventsDate" /></label>
+            <button id="loadEventsBtn">Load</button>
+            <button id="refreshTodayBtn" type="button">Refresh Today</button>
+            <button id="exportCsvBtn">Export CSV</button>
+          </div>
+        </div>
+        <p class="hint">Daily summary table shows all employees and their first entrance time for the selected date (today by default).</p>
+        <div class="row-between wrap">
+          <h3 id="attendanceSummaryTitle">Employee Entrance Summary</h3>
+          <div class="controls">
+            <label>Sort By
+              <select id="attendanceSummarySortBy">
+                <option value="name">Name</option>
+                <option value="time">Time</option>
+              </select>
+            </label>
+            <label>Order
+              <select id="attendanceSummarySortDir">
+                <option value="asc">Asc</option>
+                <option value="desc">Desc</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table id="attendanceSummaryTable">
+            <thead>
+              <tr>
+                <th>Name</th><th>Code</th><th>Entrance Time (UTC)</th><th>Method</th><th>Confidence</th><th>Status</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <div class="row-between wrap">
+          <h2>Raw Events (Selected Date)</h2>
+        </div>
+        <div class="table-wrap">
+          <table id="eventsTable">
+            <thead>
+              <tr>
+                <th>ID</th><th>Time (UTC)</th><th>Employee</th><th>Code</th><th>Method</th><th>Conf</th><th>Camera</th><th>Track</th><th>Image</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-employees" class="tab">
       <div class="card">
         <h2>Add Employee</h2>
         <form id="employeeForm" class="grid-form">
@@ -55,15 +111,17 @@
             <button id="refreshEmployeesBtn" type="button">Refresh</button>
           </div>
         </div>
-        <p class="hint">Search supports employee name, employee ID, or employee code.</p>
-        <table id="employeesTable">
-          <thead>
-            <tr>
-              <th>ID</th><th>Code</th><th>Name</th><th>Birth</th><th>Job</th><th>Status</th><th>Face</th><th>ReID</th><th>Photos</th><th>Details</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+        <p class="hint">Search supports employee name, employee ID, or employee code. Click <code>History</code> to open attendance history in a new browser tab.</p>
+        <div class="table-wrap">
+          <table id="employeesTable">
+            <thead>
+              <tr>
+                <th>ID</th><th>Code</th><th>Name</th><th>Birth</th><th>Job</th><th>Status</th><th>Face</th><th>ReID</th><th>Photos</th><th>History</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </div>
     </section>
 
@@ -100,26 +158,6 @@
           <button type="submit">Save Profile</button>
         </form>
         <pre id="employeeDetailResult" class="output"></pre>
-      </div>
-
-      <div class="card">
-        <div class="row-between wrap">
-          <h2>Entrance Time History</h2>
-          <div class="controls">
-            <label>From <input type="date" id="employeeHistoryDateFrom" /></label>
-            <label>To <input type="date" id="employeeHistoryDateTo" /></label>
-            <button id="loadEmployeeHistoryBtn">Load History</button>
-          </div>
-        </div>
-        <p class="hint">Defaults to this week. Change dates to view previous attendance history.</p>
-        <table id="employeeHistoryTable">
-          <thead>
-            <tr>
-              <th>ID</th><th>Time (UTC)</th><th>Method</th><th>Conf</th><th>Camera</th><th>Track</th><th>Snapshot</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
       </div>
 
       <div class="card">
@@ -165,14 +203,16 @@
           <button id="refreshCamerasBtn" type="button">Refresh</button>
         </div>
         <p class="hint">Use RTSP URL for IP camera, or webcam source like <code>webcam</code>, <code>webcam:0</code>, <code>0</code>, <code>1</code>.</p>
-        <table id="camerasTable">
-          <thead>
-            <tr>
-              <th>ID</th><th>Name</th><th>RTSP URL</th><th>Location</th><th>Enabled</th><th>Actions</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+        <div class="table-wrap">
+          <table id="camerasTable">
+            <thead>
+              <tr>
+                <th>ID</th><th>Name</th><th>RTSP URL</th><th>Location</th><th>Enabled</th><th>Actions</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </div>
       <div class="card">
         <div class="row-between wrap">
@@ -186,7 +226,29 @@
       </div>
     </section>
 
-    <section id="tab-enrollment" class="tab">
+    <section id="tab-unknowns" class="tab">
+      <div class="card">
+        <div class="row-between wrap">
+          <h2>Unknown Events Review</h2>
+          <div class="controls">
+            <label>Date <input type="date" id="unknownDate" /></label>
+            <button id="loadUnknownsBtn">Load Unknowns</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table id="unknownsTable">
+            <thead>
+              <tr>
+                <th>ID</th><th>Time</th><th>Method</th><th>Conf</th><th>Track</th><th>Assign Employee ID</th><th>Action</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-settings" class="tab">
       <div class="card">
         <h2>Enrollment Workflow</h2>
         <form id="faceEnrollForm" class="grid-form">
@@ -209,85 +271,10 @@
         <p class="hint">Optional live enroll capture mode: run inference with <code>--enroll-employee-id &lt;ID&gt; --enroll-kind face|reid</code>.</p>
         <pre id="enrollResult" class="output"></pre>
       </div>
-    </section>
 
-    <section id="tab-attendance" class="tab">
-      <div class="card">
-        <div class="row-between wrap">
-          <h2>Attendance Dashboard</h2>
-          <div class="controls">
-            <label>Date <input type="date" id="eventsDate" /></label>
-            <button id="loadEventsBtn">Load</button>
-            <button id="refreshTodayBtn" type="button">Refresh Today</button>
-            <button id="exportCsvBtn">Export CSV</button>
-          </div>
-        </div>
-        <p class="hint">Daily summary table shows all employees and their first entrance time for the selected date (today by default).</p>
-        <div class="row-between wrap">
-          <h3 id="attendanceSummaryTitle">Employee Entrance Summary</h3>
-          <div class="controls">
-            <label>Sort By
-              <select id="attendanceSummarySortBy">
-                <option value="name">Name</option>
-                <option value="time">Time</option>
-              </select>
-            </label>
-            <label>Order
-              <select id="attendanceSummarySortDir">
-                <option value="asc">Asc</option>
-                <option value="desc">Desc</option>
-              </select>
-            </label>
-          </div>
-        </div>
-        <table id="attendanceSummaryTable">
-          <thead>
-            <tr>
-              <th>Name</th><th>Code</th><th>Entrance Time (UTC)</th><th>Method</th><th>Confidence</th><th>Status</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
-      <div class="card">
-        <div class="row-between wrap">
-          <h2>Raw Events (Selected Date)</h2>
-        </div>
-        <table id="eventsTable">
-          <thead>
-            <tr>
-              <th>ID</th><th>Time (UTC)</th><th>Employee</th><th>Code</th><th>Method</th><th>Conf</th><th>Camera</th><th>Track</th><th>Image</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </section>
-
-    <section id="tab-unknowns" class="tab">
-      <div class="card">
-        <div class="row-between wrap">
-          <h2>Unknown Events Review</h2>
-          <div class="controls">
-            <label>Date <input type="date" id="unknownDate" /></label>
-            <button id="loadUnknownsBtn">Load Unknowns</button>
-          </div>
-        </div>
-        <table id="unknownsTable">
-          <thead>
-            <tr>
-              <th>ID</th><th>Time</th><th>Method</th><th>Conf</th><th>Track</th><th>Assign Employee ID</th><th>Action</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </section>
-
-    <section id="tab-settings" class="tab">
       <div class="card">
         <div class="row-between">
-          <h2>Settings</h2>
+          <h2>System Settings</h2>
           <button id="reloadSettingsBtn">Reload</button>
         </div>
         <form id="settingsForm" class="grid-form">
