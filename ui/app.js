@@ -263,6 +263,77 @@ function bindEnrollmentForm() {
   });
 }
 
+async function loadCameras() {
+  const rows = await api('/cameras');
+  const tbody = $('#camerasTable tbody');
+  renderTableRows(
+    tbody,
+    (rows || []).map(r => `
+      <tr>
+        <td>${escapeHtml(r.id)}</td>
+        <td>${escapeHtml(r.name || '')}</td>
+        <td>${escapeHtml(r.rtsp_url || '')}</td>
+        <td>${escapeHtml(r.location || '')}</td>
+        <td>${escapeHtml(String(r.enabled))}</td>
+        <td><button type="button" data-preview-camera-id="${r.id}" ${r.enabled ? '' : 'disabled'}>View</button></td>
+      </tr>`).join('')
+  );
+
+  $$('#camerasTable button[data-preview-camera-id]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = Number(btn.dataset.previewCameraId);
+      if (!id) return;
+      startCameraPreview(id);
+    });
+  });
+}
+
+function startCameraPreview(cameraId) {
+  const img = $('#cameraPreviewImg');
+  const hint = $('#cameraPreviewHint');
+  if (!img || !hint) return;
+  img.src = `/cameras/${cameraId}/preview.mjpeg?t=${Date.now()}`;
+  img.dataset.activeCameraId = String(cameraId);
+  hint.textContent = `Live view for Camera ID ${cameraId}. Colored rectangles indicate tracked people; labels show recognized names when available.`;
+}
+
+function stopCameraPreview() {
+  const img = $('#cameraPreviewImg');
+  const hint = $('#cameraPreviewHint');
+  if (!img || !hint) return;
+  img.removeAttribute('src');
+  img.dataset.activeCameraId = '';
+  hint.textContent = 'Click View in the table to show live stream with colored person rectangles and names.';
+}
+
+function bindCameras() {
+  const form = $('#cameraForm');
+  const refreshBtn = $('#refreshCamerasBtn');
+  const stopBtn = $('#stopCameraPreviewBtn');
+  if (!form || !refreshBtn) return;
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    fd.set('enabled', String(fd.get('enabled') === 'true'));
+    try {
+      await api('/cameras', {
+        method: 'POST',
+        body: fd,
+      });
+      form.reset();
+      await loadCameras();
+    } catch (err) {
+      alert(`Add camera failed: ${err.message}`);
+    }
+  });
+
+  refreshBtn.addEventListener('click', () => loadCameras().catch(err => alert(`Load cameras failed: ${err.message}`)));
+  if (stopBtn) {
+    stopBtn.addEventListener('click', () => stopCameraPreview());
+  }
+}
+
 async function loadEvents() {
   const date = $('#eventsDate').value;
   const rows = await api(`/events?date=${date}`);
@@ -586,6 +657,7 @@ async function init() {
   bindTabs();
   bindEmployeeForm();
   bindEmployeeDetails();
+  bindCameras();
   bindEnrollmentForm();
   bindAttendance();
   bindUnknowns();
@@ -595,7 +667,7 @@ async function init() {
   $('#unknownDate').value = todayStr();
 
   await checkHealth();
-  await Promise.allSettled([loadEmployees(), loadEvents(), loadUnknowns(), loadSettings()]);
+  await Promise.allSettled([loadEmployees(), loadCameras(), loadEvents(), loadUnknowns(), loadSettings()]);
 }
 
 init().catch(err => {

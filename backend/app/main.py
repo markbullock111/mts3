@@ -5,6 +5,8 @@ import io
 import json
 import os
 import re
+import threading
+import time as pytime
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -14,7 +16,7 @@ import cv2
 import numpy as np
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import and_, func, select, text
 from sqlalchemy.exc import IntegrityError
@@ -23,6 +25,9 @@ from sqlalchemy.orm import Session, joinedload
 from .config import settings as app_settings
 from .db import SessionLocal, engine, get_db
 from .embedding_extractors import FaceEmbedder, ReIDEmbedder
+from inference.detector import YOLOPersonDetector
+from inference.matcher import EmbeddingMatcher
+from inference.tracker import build_tracker
 from .models import (
     AttendanceEvent,
     AttendanceMethod,
@@ -54,6 +59,8 @@ _EMPLOYEE_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 _face_embedder: FaceEmbedder | None = None
 _reid_embedder: ReIDEmbedder | None = None
+_preview_workers: dict[int, "CameraPreviewWorker"] = {}
+_preview_workers_lock = threading.Lock()
 
 
 def _parse_date(value: str) -> date:
@@ -250,6 +257,218 @@ def _torch_cuda_available() -> bool:
         return False
 
 
+def _color_from_track_id(track_id: int) -> tuple[int, int, int]:
+    # Deterministic, high-contrast palette for multi-person overlays.
+    palette = [
+        (255, 56, 56),
+        (56, 255, 56),
+        (56, 56, 255),
+        (255, 196, 56),
+        (255, 56, 196),
+        (56, 224, 255),
+        (180, 56, 255),
+        (56, 255, 170),
+        (255, 122, 56),
+    ]
+    return palette[track_id % len(palette)]
+
+
+class CameraPreviewWorker:
+    def __init__(self, camera_id: int, camera_name: str, rtsp_url: str):
+        self.camera_id = camera_id
+        self.camera_name = camera_name
+        self.rtsp_url = rtsp_url
+        self._stop = threading.Event()
+        self._lock = threading.Lock()
+        self._latest_jpeg: bytes | None = None
+        self._last_frame_ts = 0.0
+        self._last_gallery_refresh = 0.0
+        self._face_threshold = 0.42
+        self._matcher: EmbeddingMatcher | None = None
+        self._thread = threading.Thread(target=self._run, daemon=True, name=f"camera-preview-{camera_id}")
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._thread.join(timeout=2)
+
+    def is_alive(self) -> bool:
+        return self._thread.is_alive()
+
+    def _load_runtime_cfg(self) -> tuple[Path, bool]:
+        cfg_path = app_settings.repo_root / "config" / "app.yaml"
+        yolo_model = app_settings.repo_root / "models" / "yolo" / "yolov8n.pt"
+        use_gpu = False
+        if cfg_path.exists():
+            import yaml
+
+            cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+            inf = cfg.get("inference") or {}
+            yolo_model = app_settings.repo_root / str(inf.get("yolo_model", "models/yolo/yolov8n.pt"))
+            use_gpu = bool(inf.get("use_gpu_if_available", False))
+        return yolo_model, use_gpu and _torch_cuda_available()
+
+    def _refresh_face_gallery(self) -> None:
+        now = pytime.time()
+        if now - self._last_gallery_refresh < 20:
+            return
+        self._last_gallery_refresh = now
+        db = SessionLocal()
+        try:
+            settings_map = get_settings_dict(db)
+            try:
+                self._face_threshold = float(settings_map.get("face_threshold", 0.42))
+            except Exception:
+                self._face_threshold = 0.42
+            rows = (
+                db.execute(
+                    select(EmployeeFaceEmbedding, Employee)
+                    .join(Employee, Employee.id == EmployeeFaceEmbedding.employee_id)
+                    .where(Employee.status == EmployeeStatus.active)
+                )
+                .all()
+            )
+            face_rows = [
+                {
+                    "embedding_id": emb.id,
+                    "employee_id": emp.id,
+                    "employee_code": emp.employee_code,
+                    "employee_name": emp.full_name,
+                    "embedding": emb.embedding_vector,
+                }
+                for emb, emp in rows
+                if emb.embedding_vector
+            ]
+            self._matcher = EmbeddingMatcher(face_rows, prefer_faiss=False)
+        finally:
+            db.close()
+
+    def _put_latest_jpeg(self, data: bytes) -> None:
+        with self._lock:
+            self._latest_jpeg = data
+            self._last_frame_ts = pytime.time()
+
+    def get_latest_jpeg(self) -> bytes | None:
+        with self._lock:
+            return self._latest_jpeg
+
+    def _run(self) -> None:
+        try:
+            yolo_model, use_gpu = self._load_runtime_cfg()
+            detector = YOLOPersonDetector(model_path=yolo_model, device=("0" if use_gpu else None), conf=0.25)
+            tracker = build_tracker(prefer_bytetrack=True, fps=25)
+            face_embedder = FaceEmbedder(
+                model_root=app_settings.repo_root / "models" / "insightface",
+                model_name="buffalo_l",
+                use_gpu=use_gpu,
+            )
+        except Exception as exc:
+            err_frame = np.zeros((320, 640, 3), dtype=np.uint8)
+            cv2.putText(err_frame, "Preview init failed", (18, 140), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2, cv2.LINE_AA)
+            cv2.putText(err_frame, str(exc)[:70], (18, 180), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (180, 180, 255), 2, cv2.LINE_AA)
+            ok_enc, enc = cv2.imencode(".jpg", err_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+            if ok_enc:
+                self._put_latest_jpeg(enc.tobytes())
+            while not self._stop.is_set():
+                pytime.sleep(0.5)
+            return
+        labels_by_track: dict[int, tuple[str, float]] = {}
+
+        while not self._stop.is_set():
+            cap = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            if not cap.isOpened():
+                pytime.sleep(1.0)
+                continue
+
+            while not self._stop.is_set():
+                ok, frame = cap.read()
+                if not ok or frame is None:
+                    pytime.sleep(0.03)
+                    break
+
+                self._refresh_face_gallery()
+                dets = detector.detect(frame)
+                tracks = tracker.update(dets, frame)
+
+                for tr in tracks:
+                    x1, y1, x2, y2 = [int(v) for v in tr.bbox]
+                    h, w = frame.shape[:2]
+                    x1, y1 = max(0, x1), max(0, y1)
+                    x2, y2 = min(w, x2), min(h, y2)
+                    if x2 <= x1 or y2 <= y1:
+                        continue
+
+                    person_crop = frame[y1:y2, x1:x2]
+                    label = labels_by_track.get(tr.track_id, (f"Track {tr.track_id}", 0.0))[0]
+                    if person_crop.size > 0 and self._matcher is not None:
+                        try:
+                            faces = face_embedder.extract_from_bgr(person_crop)
+                            if faces:
+                                best_face = sorted(faces, key=lambda f: f.det_score, reverse=True)[0]
+                                match = self._matcher.best_match(best_face.embedding, min_score=self._face_threshold, top_k=5)
+                                if match is not None:
+                                    name = match.employee_name or match.employee_code or f"ID {match.employee_id}"
+                                    label = f"{name} ({match.score:.2f})"
+                                    labels_by_track[tr.track_id] = (label, pytime.time())
+                                else:
+                                    labels_by_track.setdefault(tr.track_id, (label, pytime.time()))
+                        except Exception:
+                            pass
+
+                    color = _color_from_track_id(tr.track_id)
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                    # label background
+                    text = label
+                    (tw, th), baseline = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 2)
+                    ty = max(th + 6, y1 - 4)
+                    tx2 = min(w - 1, x1 + tw + 10)
+                    cv2.rectangle(frame, (x1, ty - th - 6), (tx2, ty + baseline - 4), color, -1)
+                    cv2.putText(frame, text, (x1 + 4, ty - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2, cv2.LINE_AA)
+
+                # prune old labels
+                now = pytime.time()
+                stale = [tid for tid, (_, ts) in labels_by_track.items() if now - ts > 10]
+                for tid in stale:
+                    labels_by_track.pop(tid, None)
+
+                cv2.putText(
+                    frame,
+                    f"{self.camera_name} | Camera ID {self.camera_id}",
+                    (12, 24),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (255, 255, 255),
+                    2,
+                    cv2.LINE_AA,
+                )
+                ok_enc, enc = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+                if ok_enc:
+                    self._put_latest_jpeg(enc.tobytes())
+
+            cap.release()
+
+    def mjpeg_generator(self):
+        boundary = b"--frame\r\n"
+        while not self._stop.is_set():
+            frame = self.get_latest_jpeg()
+            if frame is None:
+                pytime.sleep(0.05)
+                continue
+            yield boundary + b"Content-Type: image/jpeg\r\n\r\n" + frame + b"\r\n"
+            pytime.sleep(0.03)
+
+
+def _get_or_create_preview_worker(camera: Camera) -> CameraPreviewWorker:
+    with _preview_workers_lock:
+        worker = _preview_workers.get(camera.id)
+        if worker is not None and worker.is_alive():
+            return worker
+        worker = CameraPreviewWorker(camera_id=camera.id, camera_name=camera.name, rtsp_url=camera.rtsp_url)
+        _preview_workers[camera.id] = worker
+        return worker
+
+
 @app.on_event("startup")
 def startup() -> None:
     defaults = load_defaults_from_yaml(app_settings.repo_root)
@@ -258,6 +477,18 @@ def startup() -> None:
         ensure_default_settings(db, defaults)
     finally:
         db.close()
+
+
+@app.on_event("shutdown")
+def shutdown() -> None:
+    with _preview_workers_lock:
+        workers = list(_preview_workers.values())
+        _preview_workers.clear()
+    for worker in workers:
+        try:
+            worker.stop()
+        except Exception:
+            pass
 
 
 @app.get("/")
@@ -735,6 +966,21 @@ def create_camera(name: str = Form(...), rtsp_url: str = Form(...), location: st
     db.commit()
     db.refresh(cam)
     return {"id": cam.id, "name": cam.name, "rtsp_url": cam.rtsp_url, "location": cam.location, "enabled": cam.enabled}
+
+
+@app.get("/cameras/{camera_id}/preview.mjpeg")
+def camera_preview_stream(camera_id: int, db: Session = Depends(get_db)) -> StreamingResponse:
+    cam = db.get(Camera, camera_id)
+    if cam is None:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    if not cam.enabled:
+        raise HTTPException(status_code=400, detail="Camera is disabled")
+    worker = _get_or_create_preview_worker(cam)
+    return StreamingResponse(
+        worker.mjpeg_generator(),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 if _DATA_DIR.exists():

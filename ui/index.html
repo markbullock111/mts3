@@ -18,6 +18,7 @@
   <nav class="tabs">
     <button data-tab="employees" class="active">Employees</button>
     <button data-tab="employee-details">Employee Details</button>
+    <button data-tab="cameras">Cameras</button>
     <button data-tab="enrollment">Enrollment</button>
     <button data-tab="attendance">Attendance</button>
     <button data-tab="unknowns">Unknown Review</button>
@@ -127,6 +128,48 @@
           <div id="employeePhotosSummary" class="muted"></div>
         </div>
         <div id="employeePhotoGrid" class="photo-grid"></div>
+      </div>
+    </section>
+
+    <section id="tab-cameras" class="tab">
+      <div class="card">
+        <h2>Add Camera</h2>
+        <form id="cameraForm" class="grid-form">
+          <label>Name <input name="name" required placeholder="Entrance Camera 1" /></label>
+          <label>RTSP URL <input name="rtsp_url" required placeholder="rtsp://user:pass@192.168.1.64:554/Streaming/Channels/102" /></label>
+          <label>Location <input name="location" placeholder="Main Gate" /></label>
+          <label>Enabled
+            <select name="enabled">
+              <option value="true">true</option>
+              <option value="false">false</option>
+            </select>
+          </label>
+          <button type="submit">Add Camera</button>
+        </form>
+      </div>
+      <div class="card">
+        <div class="row-between wrap">
+          <h2>Camera Data</h2>
+          <button id="refreshCamerasBtn" type="button">Refresh</button>
+        </div>
+        <table id="camerasTable">
+          <thead>
+            <tr>
+              <th>ID</th><th>Name</th><th>RTSP URL</th><th>Location</th><th>Enabled</th><th>View</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <div class="row-between wrap">
+          <h2>Live Camera View</h2>
+          <button id="stopCameraPreviewBtn" type="button">Stop View</button>
+        </div>
+        <p id="cameraPreviewHint" class="hint">Click <code>View</code> in the table to show live stream with colored person rectangles and names.</p>
+        <div class="camera-preview-wrap">
+          <img id="cameraPreviewImg" alt="Camera live view" />
+        </div>
       </div>
     </section>
 
