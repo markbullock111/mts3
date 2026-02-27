@@ -540,6 +540,10 @@ async function renderAttendanceSummary(events, dateStr) {
 function bindAttendance() {
   $('#eventsDate').value = todayStr();
   $('#loadEventsBtn').addEventListener('click', () => loadEvents().catch(err => alert(err.message)));
+  $('#refreshTodayBtn').addEventListener('click', async () => {
+    $('#eventsDate').value = todayStr();
+    await loadEvents().catch(err => alert(err.message));
+  });
   $('#exportCsvBtn').addEventListener('click', () => {
     const date = $('#eventsDate').value;
     window.location.href = `/reports/daily.csv?date=${date}`;
