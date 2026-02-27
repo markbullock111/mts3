@@ -22,6 +22,7 @@ class FaceCandidateFrame:
     face_score: float
     sharpness: float
     ts_ms: int
+    embedding: np.ndarray | None = None
 
 
 @dataclass
@@ -29,9 +30,25 @@ class FaceTrackBuffer:
     max_items: int = 12
     items: list[FaceCandidateFrame] = field(default_factory=list)
 
-    def add(self, crop_bgr: np.ndarray, face_score: float, ts_ms: int) -> None:
+    def add(self, crop_bgr: np.ndarray, face_score: float, ts_ms: int, embedding: np.ndarray | None = None) -> None:
         sharpness = variance_of_laplacian(crop_bgr)
-        self.items.append(FaceCandidateFrame(crop_bgr=crop_bgr.copy(), face_score=float(face_score), sharpness=float(sharpness), ts_ms=int(ts_ms)))
+        emb = None
+        if embedding is not None:
+            emb = np.asarray(embedding, dtype=np.float32)
+            n = float(np.linalg.norm(emb))
+            if n > 1e-8:
+                emb = emb / n
+            else:
+                emb = None
+        self.items.append(
+            FaceCandidateFrame(
+                crop_bgr=crop_bgr.copy(),
+                face_score=float(face_score),
+                sharpness=float(sharpness),
+                ts_ms=int(ts_ms),
+                embedding=emb,
+            )
+        )
         self.items.sort(key=lambda x: (x.face_score, x.sharpness), reverse=True)
         if len(self.items) > self.max_items:
             self.items = self.items[: self.max_items]
@@ -79,7 +96,10 @@ class FaceRecognizer:
         crop = person_crop_bgr[y1:y2, x1:x2]
         if crop.size == 0:
             return False
-        face_buffer.add(crop, float(getattr(best, "det_score", 0.0) or 0.0), ts_ms)
+        emb = np.asarray(getattr(best, "embedding", []), dtype=np.float32)
+        if emb.size == 0:
+            emb = None  # type: ignore[assignment]
+        face_buffer.add(crop, float(getattr(best, "det_score", 0.0) or 0.0), ts_ms, embedding=emb)
         return True
 
     def embed_faces(self, crops: list[np.ndarray]) -> list[np.ndarray]:
@@ -100,7 +120,9 @@ class FaceRecognizer:
         frames = face_buffer.top_k(top_k_frames)
         if not frames:
             return None
-        embs = self.embed_faces([f.crop_bgr for f in frames])
+        embs = [f.embedding for f in frames if f.embedding is not None]
+        if not embs:
+            embs = self.embed_faces([f.crop_bgr for f in frames])
         if not embs:
             return None
         return matcher.vote_match(embs, min_score=threshold, top_k=5)
