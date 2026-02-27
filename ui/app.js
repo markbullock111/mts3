@@ -147,22 +147,6 @@ function eventImageThumb(r, label = 'snapshot') {
   return `<a class="image-link image-thumb-link" target="_blank" href="${escapeHtml(url)}"><img class="event-thumb" src="${escapeHtml(url)}" alt="${escapeHtml(label)}" loading="lazy" /></a>`;
 }
 
-function eventRow(r) {
-  const time = asIsoOrEmpty(r.ts);
-  return `
-    <tr>
-      <td>${escapeHtml(r.id)}</td>
-      <td>${escapeHtml(time)}</td>
-      <td>${escapeHtml(r.employee_name || '')}</td>
-      <td>${escapeHtml(r.employee_code || '')}</td>
-      <td>${escapeHtml(r.method)}</td>
-      <td>${Number(r.confidence || 0).toFixed(3)}</td>
-      <td>${escapeHtml(r.camera_id || '')}</td>
-      <td>${escapeHtml(r.track_uid || '')}</td>
-      <td>${eventImageThumb(r, `${r.employee_name || 'unknown'} event`)}</td>
-    </tr>`;
-}
-
 async function loadEmployees() {
   const rows = await api('/employees');
   state.employees = rows;
@@ -196,7 +180,7 @@ function renderEmployeesTable() {
         <td>${r.face_embeddings_count ?? 0}</td>
         <td>${r.reid_embeddings_count ?? 0}</td>
         <td>${r.uploaded_images_count ?? 0}</td>
-        <td><button data-open-detail-id="${r.id}">Open</button></td>
+        <td><button data-open-detail-id="${r.id}">View</button></td>
       </tr>`).join('')
   );
 
@@ -204,8 +188,7 @@ function renderEmployeesTable() {
     btn.addEventListener('click', () => {
       const id = Number(btn.dataset.openDetailId);
       if (!id) return;
-      $('#detailEmployeeIdInput').value = String(id);
-      setSelectedEmployee(id, { openTab: true });
+      window.location.href = `/ui/employee_detail.html?id=${encodeURIComponent(String(id))}`;
     });
   });
 
@@ -223,34 +206,44 @@ async function ensureEmployeesLoaded() {
 }
 
 function bindEmployeeForm() {
-  $('#employeeForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const form = e.target;
-    const payload = normalizeEmployeePayload(form, { includeCode: true });
-    try {
-      const created = await api('/employees', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      form.reset();
-      await loadEmployees();
-      if (created?.id) {
-        $('#detailEmployeeIdInput').value = String(created.id);
-        await setSelectedEmployee(Number(created.id), { openTab: false });
+  const openAddBtn = $('#openAddEmployeePageBtn');
+  const form = $('#employeeForm');
+  const refreshBtn = $('#refreshEmployeesBtn');
+  const searchInput = $('#employeesSearchInput');
+  const clearBtn = $('#clearEmployeesSearchBtn');
+
+  if (openAddBtn) {
+    openAddBtn.addEventListener('click', () => {
+      window.location.href = '/ui/add_employee.html';
+    });
+  }
+
+  if (form) {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const payload = normalizeEmployeePayload(form, { includeCode: true });
+      try {
+        await api('/employees', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        form.reset();
+        await loadEmployees();
+      } catch (err) {
+        alert(`Add employee failed: ${err.message}`);
       }
-    } catch (err) {
-      alert(`Add employee failed: ${err.message}`);
-    }
-  });
-  $('#refreshEmployeesBtn').addEventListener('click', () => loadEmployees().catch(err => alert(err.message)));
-  $('#employeesSearchInput').addEventListener('input', (e) => {
+    });
+  }
+
+  refreshBtn?.addEventListener('click', () => loadEmployees().catch(err => alert(err.message)));
+  searchInput?.addEventListener('input', (e) => {
     state.employeesSearchQuery = e.target.value || '';
     renderEmployeesTable();
   });
-  $('#clearEmployeesSearchBtn').addEventListener('click', () => {
+  clearBtn?.addEventListener('click', () => {
     state.employeesSearchQuery = '';
-    $('#employeesSearchInput').value = '';
+    if (searchInput) searchInput.value = '';
     renderEmployeesTable();
   });
 }
@@ -503,14 +496,20 @@ function bindCameras() {
 async function loadEvents() {
   if (state.attendanceLoading) return;
   state.attendanceLoading = true;
-  const date = $('#eventsDate').value;
+  const date = $('#eventsDate').value || todayStr();
   try {
     const rows = await api(`/events?date=${date}`);
-    renderTableRows($('#eventsTable tbody'), rows.map(eventRow).join(''));
     await renderAttendanceSummary(rows, date);
+    renderUnknownsTable(rows);
   } finally {
     state.attendanceLoading = false;
   }
+}
+
+function openAttendanceDateTab(dateStr) {
+  const date = String(dateStr || '').trim() || todayStr();
+  const url = `/ui/attendance_day.html?date=${encodeURIComponent(date)}`;
+  window.open(url, '_blank', 'noopener,noreferrer');
 }
 
 function buildAttendanceSummaryRows(employees, events) {
@@ -653,9 +652,15 @@ function bindAttendance() {
   if (todayInput) {
     todayInput.value = normalizeTimeHHMM(state.attendancePolicy?.standardTime, '09:00');
   }
-  $('#loadEventsBtn').addEventListener('click', () => loadEvents().catch(err => alert(err.message)));
+  $('#loadEventsBtn').addEventListener('click', () => {
+    const date = $('#eventsDate').value || todayStr();
+    openAttendanceDateTab(date);
+  });
   $('#refreshTodayBtn').addEventListener('click', async () => {
     $('#eventsDate').value = todayStr();
+    await loadEvents().catch(err => alert(err.message));
+  });
+  $('#loadUnknownsBtn').addEventListener('click', async () => {
     await loadEvents().catch(err => alert(err.message));
   });
   $('#exportCsvBtn').addEventListener('click', () => {
@@ -736,10 +741,8 @@ function bindAttendance() {
   startAutoRefresh();
 }
 
-async function loadUnknowns() {
-  const date = $('#unknownDate').value;
-  const rows = await api(`/events?date=${date}`);
-  const unknowns = rows.filter(r => r.method === 'unknown' || r.employee_id == null);
+function renderUnknownsTable(rows) {
+  const unknowns = (rows || []).filter(r => r.method === 'unknown' || r.employee_id == null);
   renderTableRows($('#unknownsTable tbody'), unknowns.map(r => `
     <tr>
       <td>${r.id}</td>
@@ -763,18 +766,12 @@ async function loadUnknowns() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ employee_id: employeeId })
         });
-        await loadUnknowns();
         await loadEvents().catch(() => {});
       } catch (err) {
         alert(`Override failed: ${err.message}`);
       }
     });
   });
-}
-
-function bindUnknowns() {
-  $('#unknownDate').value = todayStr();
-  $('#loadUnknownsBtn').addEventListener('click', () => loadUnknowns().catch(err => alert(err.message)));
 }
 
 function renderEmployeePhotos(items = []) {
@@ -1041,18 +1038,15 @@ function bindSettings() {
 async function init() {
   bindTabs();
   bindEmployeeForm();
-  bindEmployeeDetails();
   bindCameras();
   bindEnrollmentForm();
   bindAttendance();
-  bindUnknowns();
   bindSettings();
 
   $('#eventsDate').value = todayStr();
-  $('#unknownDate').value = todayStr();
 
   await checkHealth();
-  await Promise.allSettled([loadEmployees(), loadCameras(), loadEvents(), loadUnknowns(), loadSettings()]);
+  await Promise.allSettled([loadEmployees(), loadCameras(), loadEvents(), loadSettings()]);
 }
 
 init().catch(err => {

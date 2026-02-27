@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Attendance Date View</title>
+  <link rel="stylesheet" href="/ui/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Attendance Date View</h1>
+      <p>Daily summary for selected date (recognized + unknown)</p>
+    </div>
+    <div class="health" id="dayViewStatus">Loading...</div>
+  </header>
+
+  <main>
+    <section class="tab active">
+      <div class="card">
+        <div class="row-between wrap">
+          <h2 id="dayViewTitle">Attendance Summary</h2>
+          <div class="controls">
+            <label>Date <input type="date" id="dayViewDate" /></label>
+            <button id="dayViewLoadBtn" type="button">Load</button>
+            <button id="dayViewExportBtn" type="button">Export CSV</button>
+          </div>
+        </div>
+        <p class="hint" id="dayViewHint">Shows first check-in per employee and unknown detections for the selected date.</p>
+        <table id="dayViewTable">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Code</th>
+              <th>Entrance Time (UTC)</th>
+              <th>Method</th>
+              <th>Confidence</th>
+              <th>Status</th>
+              <th>Picture</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="/ui/attendance_day.js"></script>
+</body>
+</html>

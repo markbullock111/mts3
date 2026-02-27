@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Enrollment</title>
+  <link rel="stylesheet" href="/ui/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Enrollment</h1>
+      <p>Upload face/ReID images for employee recognition</p>
+    </div>
+    <div class="health" id="enrollmentStatusBadge">Ready</div>
+  </header>
+
+  <main>
+    <section class="tab active">
+      <div class="card">
+        <div class="row-between wrap">
+          <h2>Enrollment Workflow</h2>
+          <div class="controls">
+            <button id="backToAddEmployeeBtn" type="button">Back To Add Employee</button>
+            <button id="backToAdminFromEnrollBtn" type="button">Back To Admin</button>
+          </div>
+        </div>
+        <form id="enrollmentForm" class="grid-form">
+          <label>Employee ID <input type="number" name="employee_id" id="enrollEmployeeIdInput" min="1" required /></label>
+          <label>Mode
+            <select name="kind">
+              <option value="face">Face</option>
+              <option value="reid">ReID</option>
+            </select>
+          </label>
+          <label class="full">Upload Photos <input type="file" name="files" accept="image/*" multiple required /></label>
+          <button id="enrollSubmitBtn" type="submit">Upload Enrollment Images</button>
+        </form>
+        <div id="enrollUploadStatus" class="upload-status hidden" aria-live="polite">
+          <span class="spinner" aria-hidden="true"></span>
+          <span id="enrollUploadStatusText">Uploading...</span>
+        </div>
+        <p id="enrollTargetInfo" class="hint">Employee ID and mode will be shown during upload.</p>
+        <p class="hint">Use at least 5 face photos with varied angle/light. Prefix file name with <code>re_</code> for ReID images if batch importing by folders.</p>
+        <pre id="enrollResult" class="output"></pre>
+      </div>
+    </section>
+  </main>
+
+  <script src="/ui/enrollment.js"></script>
+</body>
+</html>

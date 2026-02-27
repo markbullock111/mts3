@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Employee Details</title>
+  <link rel="stylesheet" href="/ui/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Employee Details</h1>
+      <p>Profile, attendance history, and uploaded face/ReID images</p>
+    </div>
+    <div class="health" id="detailHealthBadge">Ready</div>
+  </header>
+
+  <main>
+    <section class="tab active">
+      <div class="card">
+        <div class="row-between wrap">
+          <h2>Load Employee</h2>
+          <div class="controls">
+            <button id="backToAdminBtn" type="button">Back To Admin</button>
+            <label>Employee ID <input type="number" id="detailEmployeeIdInput" min="1" placeholder="Enter employee ID" /></label>
+            <button id="loadEmployeeDetailBtn" type="button">Load</button>
+          </div>
+        </div>
+        <p id="employeeDetailHint" class="hint">Select employee from Employees page and click View, or enter an ID.</p>
+      </div>
+
+      <div class="card">
+        <div class="row-between wrap">
+          <h2 id="employeeDetailTitle">Profile</h2>
+          <div id="employeeDetailCounts" class="muted"></div>
+        </div>
+        <form id="employeeDetailForm" class="grid-form">
+          <input type="hidden" name="id" />
+          <label>Full Name <input name="full_name" required /></label>
+          <label>Employee Code <input name="employee_code" readonly /></label>
+          <label>Birth <input type="date" name="birth_date" /></label>
+          <label>Job <input name="job_title" /></label>
+          <label>Status
+            <select name="status">
+              <option value="active">active</option>
+              <option value="inactive">inactive</option>
+            </select>
+          </label>
+          <label class="full">Address <textarea name="address" rows="3"></textarea></label>
+          <button type="submit">Save Profile</button>
+        </form>
+        <pre id="employeeDetailResult" class="output"></pre>
+      </div>
+
+      <div class="card">
+        <div class="row-between wrap">
+          <h2>Entrance Time History</h2>
+          <div class="controls">
+            <label>From <input type="date" id="employeeHistoryDateFrom" /></label>
+            <label>To <input type="date" id="employeeHistoryDateTo" /></label>
+            <button id="loadEmployeeHistoryBtn" type="button">Load History</button>
+          </div>
+        </div>
+        <table id="employeeHistoryTable">
+          <thead>
+            <tr>
+              <th>ID</th><th>Time (UTC)</th><th>Method</th><th>Conf</th><th>Camera</th><th>Track</th><th>Snapshot</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="row-between wrap">
+          <h2>Uploaded Pictures</h2>
+          <div id="employeePhotosSummary" class="muted"></div>
+        </div>
+        <form id="employeePhotoAddForm" class="grid-form">
+          <label>Kind
+            <select name="kind">
+              <option value="face">face</option>
+              <option value="reid">reid</option>
+            </select>
+          </label>
+          <label class="full">Images <input name="files" type="file" accept="image/*" multiple required /></label>
+          <button id="employeePhotoAddBtn" type="submit">Add Images To Employee</button>
+        </form>
+        <p class="hint">Admin can add/remove each face or ReID image here.</p>
+        <pre id="employeePhotoActionResult" class="output"></pre>
+        <div id="employeePhotoGrid" class="photo-grid"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/ui/employee_detail.js"></script>
+</body>
+</html>

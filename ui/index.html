@@ -18,10 +18,7 @@
   <nav class="tabs">
     <button data-tab="attendance" class="active">Attendance</button>
     <button data-tab="employees">Employees</button>
-    <button data-tab="employee-details">Employee Details</button>
-    <button data-tab="cameras">Cameras</button>
     <button data-tab="enrollment">Enrollment</button>
-    <button data-tab="unknowns">Unknown Review</button>
     <button data-tab="settings">Settings</button>
   </nav>
 
@@ -32,7 +29,7 @@
           <h2>Attendance Dashboard</h2>
           <div class="controls">
             <label>Date <input type="date" id="eventsDate" /></label>
-            <button id="loadEventsBtn">Load</button>
+            <button id="loadEventsBtn">Load In New Tab</button>
             <button id="refreshTodayBtn" type="button">Refresh Today</button>
             <button id="exportCsvBtn">Export CSV</button>
             <label><input type="checkbox" id="attendanceAutoRefresh" checked /> Auto Refresh (5s)</label>
@@ -75,12 +72,16 @@
       </div>
       <div class="card">
         <div class="row-between wrap">
-          <h2>Raw Events (Selected Date)</h2>
+          <h2>Unknown Events Review (Selected Date)</h2>
+          <div class="controls">
+            <button id="loadUnknownsBtn" type="button">Load Unknowns</button>
+          </div>
         </div>
-        <table id="eventsTable">
+        <p class="hint">Use selected Attendance date, then assign unknown events to employee IDs.</p>
+        <table id="unknownsTable">
           <thead>
             <tr>
-              <th>ID</th><th>Time (UTC)</th><th>Employee</th><th>Code</th><th>Method</th><th>Conf</th><th>Camera</th><th>Track</th><th>Image</th>
+              <th>ID</th><th>Time</th><th>Method</th><th>Conf</th><th>Track</th><th>Assign Employee ID</th><th>Action</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -90,26 +91,10 @@
 
     <section id="tab-employees" class="tab">
       <div class="card">
-        <h2>Add Employee</h2>
-        <form id="employeeForm" class="grid-form">
-          <label>Full Name <input name="full_name" required /></label>
-          <label>Employee Code <input name="employee_code" required /></label>
-          <label>Birth <input type="date" name="birth_date" /></label>
-          <label>Job <input name="job_title" placeholder="Operator / Staff / Security" /></label>
-          <label class="full">Address <textarea name="address" rows="2" placeholder="Home address"></textarea></label>
-          <label>Status
-            <select name="status">
-              <option value="active">active</option>
-              <option value="inactive">inactive</option>
-            </select>
-          </label>
-          <button type="submit">Add</button>
-        </form>
-      </div>
-      <div class="card">
         <div class="row-between wrap">
           <h2>Employees</h2>
           <div class="controls">
+            <button id="openAddEmployeePageBtn" type="button">Add Employee</button>
             <label>Search
               <input id="employeesSearchInput" type="text" placeholder="Search by name / ID / code" />
             </label>
@@ -126,125 +111,6 @@
           </thead>
           <tbody></tbody>
         </table>
-      </div>
-    </section>
-
-    <section id="tab-employee-details" class="tab">
-      <div class="card">
-        <div class="row-between wrap">
-          <h2>Employee Details</h2>
-          <div class="controls">
-            <label>Employee ID <input type="number" id="detailEmployeeIdInput" min="1" placeholder="Select from Employees tab" /></label>
-            <button id="loadEmployeeDetailBtn">Load</button>
-          </div>
-        </div>
-        <p id="employeeDetailHint" class="hint">Select an employee from the Employees table or enter an ID.</p>
-      </div>
-
-      <div class="card">
-        <div class="row-between wrap">
-          <h2 id="employeeDetailTitle">Profile</h2>
-          <div id="employeeDetailCounts" class="muted"></div>
-        </div>
-        <form id="employeeDetailForm" class="grid-form">
-          <input type="hidden" name="id" />
-          <label>Full Name <input name="full_name" required /></label>
-          <label>Employee Code <input name="employee_code" readonly /></label>
-          <label>Birth <input type="date" name="birth_date" /></label>
-          <label>Job <input name="job_title" /></label>
-          <label>Status
-            <select name="status">
-              <option value="active">active</option>
-              <option value="inactive">inactive</option>
-            </select>
-          </label>
-          <label class="full">Address <textarea name="address" rows="3"></textarea></label>
-          <button type="submit">Save Profile</button>
-        </form>
-        <pre id="employeeDetailResult" class="output"></pre>
-      </div>
-
-      <div class="card">
-        <div class="row-between wrap">
-          <h2>Entrance Time History</h2>
-          <div class="controls">
-            <label>From <input type="date" id="employeeHistoryDateFrom" /></label>
-            <label>To <input type="date" id="employeeHistoryDateTo" /></label>
-            <button id="loadEmployeeHistoryBtn">Load History</button>
-          </div>
-        </div>
-        <p class="hint">Defaults to this week. Change dates to view previous attendance history.</p>
-        <table id="employeeHistoryTable">
-          <thead>
-            <tr>
-              <th>ID</th><th>Time (UTC)</th><th>Method</th><th>Conf</th><th>Camera</th><th>Track</th><th>Snapshot</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
-
-      <div class="card">
-        <div class="row-between wrap">
-          <h2>Uploaded Pictures</h2>
-          <div id="employeePhotosSummary" class="muted"></div>
-        </div>
-        <form id="employeePhotoAddForm" class="grid-form">
-          <label>Kind
-            <select name="kind">
-              <option value="face">face</option>
-              <option value="reid">reid</option>
-            </select>
-          </label>
-          <label class="full">Images <input name="files" type="file" accept="image/*" multiple required /></label>
-          <button id="employeePhotoAddBtn" type="submit">Add Images To Employee</button>
-        </form>
-        <p class="hint">Use this section to add or remove a specific employee's face/ReID images.</p>
-        <pre id="employeePhotoActionResult" class="output"></pre>
-        <div id="employeePhotoGrid" class="photo-grid"></div>
-      </div>
-    </section>
-
-    <section id="tab-cameras" class="tab">
-      <div class="card">
-        <h2>Add Camera</h2>
-        <form id="cameraForm" class="grid-form">
-          <label>Name <input name="name" required placeholder="Entrance Camera 1" /></label>
-          <label>Camera Source <input name="rtsp_url" required placeholder="rtsp://... or webcam / webcam:0 / 0 / 1" /></label>
-          <label>Location <input name="location" placeholder="Main Gate" /></label>
-          <label>Enabled
-            <select name="enabled">
-              <option value="true">true</option>
-              <option value="false">false</option>
-            </select>
-          </label>
-          <button type="submit">Add Camera</button>
-        </form>
-      </div>
-      <div class="card">
-        <div class="row-between wrap">
-          <h2>Camera Data</h2>
-          <button id="refreshCamerasBtn" type="button">Refresh</button>
-        </div>
-        <p class="hint">Use RTSP URL for IP camera, or webcam source like <code>webcam</code>, <code>webcam:0</code>, <code>0</code>, <code>1</code>.</p>
-        <table id="camerasTable">
-          <thead>
-            <tr>
-              <th>ID</th><th>Name</th><th>RTSP URL</th><th>Location</th><th>Enabled</th><th>Actions</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
-      <div class="card">
-        <div class="row-between wrap">
-          <h2>Live Camera View</h2>
-          <button id="stopCameraPreviewBtn" type="button">Stop View</button>
-        </div>
-        <p id="cameraPreviewHint" class="hint">Click <code>View</code> in the table to show live stream with colored person rectangles and names.</p>
-        <div class="camera-preview-wrap">
-          <img id="cameraPreviewImg" alt="Camera live view" />
-        </div>
       </div>
     </section>
 
@@ -273,30 +139,10 @@
       </div>
     </section>
 
-    <section id="tab-unknowns" class="tab">
-      <div class="card">
-        <div class="row-between wrap">
-          <h2>Unknown Events Review</h2>
-          <div class="controls">
-            <label>Date <input type="date" id="unknownDate" /></label>
-            <button id="loadUnknownsBtn">Load Unknowns</button>
-          </div>
-        </div>
-        <table id="unknownsTable">
-          <thead>
-            <tr>
-              <th>ID</th><th>Time</th><th>Method</th><th>Conf</th><th>Track</th><th>Assign Employee ID</th><th>Action</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </section>
-
     <section id="tab-settings" class="tab">
       <div class="card">
         <div class="row-between">
-          <h2>Settings</h2>
+          <h2>System Settings</h2>
           <button id="reloadSettingsBtn">Reload</button>
         </div>
         <form id="settingsForm" class="grid-form">
@@ -321,6 +167,49 @@
           <button type="submit">Save Settings</button>
         </form>
         <pre id="settingsResult" class="output"></pre>
+      </div>
+
+      <div class="card">
+        <h2>Add Camera</h2>
+        <form id="cameraForm" class="grid-form">
+          <label>Name <input name="name" required placeholder="Entrance Camera 1" /></label>
+          <label>Camera Source <input name="rtsp_url" required placeholder="rtsp://... or webcam / webcam:0 / 0 / 1" /></label>
+          <label>Location <input name="location" placeholder="Main Gate" /></label>
+          <label>Enabled
+            <select name="enabled">
+              <option value="true">true</option>
+              <option value="false">false</option>
+            </select>
+          </label>
+          <button type="submit">Add Camera</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <div class="row-between wrap">
+          <h2>Camera Data</h2>
+          <button id="refreshCamerasBtn" type="button">Refresh</button>
+        </div>
+        <p class="hint">Use RTSP URL for IP camera, or webcam source like <code>webcam</code>, <code>webcam:0</code>, <code>0</code>, <code>1</code>.</p>
+        <table id="camerasTable">
+          <thead>
+            <tr>
+              <th>ID</th><th>Name</th><th>RTSP URL</th><th>Location</th><th>Enabled</th><th>Actions</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="row-between wrap">
+          <h2>Live Camera View</h2>
+          <button id="stopCameraPreviewBtn" type="button">Stop View</button>
+        </div>
+        <p id="cameraPreviewHint" class="hint">Click <code>View</code> in Camera Data to show live stream with colored person rectangles and names.</p>
+        <div class="camera-preview-wrap">
+          <img id="cameraPreviewImg" alt="Camera live view" />
+        </div>
       </div>
     </section>
   </main>

@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Add Employee</title>
+  <link rel="stylesheet" href="/ui/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Add Employee</h1>
+      <p>Create employee profile, then continue to enrollment.</p>
+    </div>
+    <div class="health" id="addEmployeeStatus">Ready</div>
+  </header>
+
+  <main>
+    <section class="tab active">
+      <div class="card">
+        <div class="row-between wrap">
+          <h2>Employee Profile</h2>
+          <div class="controls">
+            <button id="backToAdminBtn" type="button">Back To Employees</button>
+            <button id="goEnrollmentBtn" type="button">Enrollment Page</button>
+          </div>
+        </div>
+        <form id="addEmployeeForm" class="grid-form">
+          <label>Full Name <input name="full_name" required /></label>
+          <label>Employee Code <input name="employee_code" required /></label>
+          <label>Birth <input type="date" name="birth_date" /></label>
+          <label>Job <input name="job_title" placeholder="Operator / Staff / Security" /></label>
+          <label class="full">Address <textarea name="address" rows="2" placeholder="Home address"></textarea></label>
+          <label>Status
+            <select name="status">
+              <option value="active">active</option>
+              <option value="inactive">inactive</option>
+            </select>
+          </label>
+          <button type="submit">Add Employee</button>
+        </form>
+        <p class="hint">After adding, click Enrollment Page to upload face/ReID images.</p>
+        <pre id="addEmployeeResult" class="output"></pre>
+      </div>
+    </section>
+  </main>
+
+  <script src="/ui/add_employee.js"></script>
+</body>
+</html>
