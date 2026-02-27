@@ -44,6 +44,10 @@ class TrackMemory:
     live_confidence: float = 0.0
     last_live_infer_ts: float = 0.0
     last_live_match_ts: float = 0.0
+    event_ts_utc: datetime | None = None
+    last_post_attempt_ts: float = 0.0
+    post_attempts: int = 0
+    last_post_error: str | None = None
 
 
 class AttendancePipeline:
@@ -279,6 +283,12 @@ class AttendancePipeline:
                     self.cfg.roi.roi_polygon,
                 ):
                     mem.crossed = True
+            # Fallback trigger: if person is inside ROI for a short dwell time, finalize anyway.
+            # This prevents missed check-ins when line geometry does not match the live camera framing.
+            if (not mem.crossed) and mem.current_center is not None:
+                if point_in_polygon(mem.current_center, self.cfg.roi.roi_polygon):
+                    if (now_ts - mem.first_seen_ts) >= 1.2:
+                        mem.crossed = True
 
     def _update_live_identity(self, mem: TrackMemory, now_ts: float, state: GalleryState) -> None:
         # Keep inference overhead bounded; update live identity at most twice per second per track.
@@ -332,8 +342,11 @@ class AttendancePipeline:
 
     def _finalize_crossed_tracks(self, frame: np.ndarray, ts_ms: int) -> None:
         state = self.gallery.get_state()
+        now_ts = time.time()
         for trk_id, mem in list(self.track_mem.items()):
             if mem.finalized or not mem.crossed:
+                continue
+            if mem.last_post_attempt_ts and (now_ts - mem.last_post_attempt_ts) < 1.0:
                 continue
             if state.face_matcher is None or state.reid_matcher is None:
                 continue
@@ -379,10 +392,12 @@ class AttendancePipeline:
                     mem.resolved_method = method
                     mem.resolved_confidence = confidence
 
-            event_ts = datetime.now(timezone.utc)
+            event_ts = mem.event_ts_utc or datetime.now(timezone.utc)
+            mem.event_ts_utc = event_ts
             if employee_id is not None:
                 d = self.runtime_dedup.consider(employee_id, event_ts)
                 if not d.keep_new:
+                    mem.posted = True
                     mem.finalized = True
                     continue
 
@@ -409,10 +424,17 @@ class AttendancePipeline:
             try:
                 self.backend.post_event(payload)
                 mem.posted = True
-            except Exception:
-                # leave finalized to avoid spamming duplicate posts; backend dedup still protects
+                mem.finalized = True
+                mem.last_post_error = None
+            except Exception as exc:
                 mem.posted = False
-            mem.finalized = True
+                mem.finalized = False
+                mem.post_attempts += 1
+                mem.last_post_attempt_ts = now_ts
+                err_msg = f"{type(exc).__name__}: {exc}"
+                if err_msg != mem.last_post_error:
+                    print(f"[events] failed to post track={trk_id} attempt={mem.post_attempts}: {err_msg}")
+                mem.last_post_error = err_msg
 
     def _save_snapshot(self, frame: np.ndarray, track_id: int, method: str, ts: datetime) -> str | None:
         try:
