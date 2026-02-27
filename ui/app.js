@@ -326,7 +326,9 @@ function bindEmployeeForm() {
 }
 
 function bindEnrollmentForm() {
-  $('#faceEnrollForm').addEventListener('submit', async (e) => {
+  const formEl = $('#faceEnrollForm');
+  if (!formEl) return;
+  formEl.addEventListener('submit', async (e) => {
     e.preventDefault();
     const form = e.target;
     const fd = new FormData(form);
