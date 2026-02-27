@@ -14,6 +14,9 @@ from .models import Setting
 DEFAULT_SETTINGS: dict[str, Any] = {
     "face_threshold": 0.42,
     "reid_threshold": 0.78,
+    "standard_attendance_time": "09:00",
+    "attendance_today_override_date": "",
+    "attendance_today_override_time": "",
     "morning_window_start": "04:00",
     "morning_window_end": "11:30",
     "roi_polygon": [[100, 100], [1180, 100], [1180, 680], [100, 680]],

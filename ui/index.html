@@ -16,17 +16,79 @@
   </header>
 
   <nav class="tabs">
-    <button data-tab="employees" class="active">Employees</button>
+    <button data-tab="attendance" class="active">Attendance</button>
+    <button data-tab="employees">Employees</button>
     <button data-tab="employee-details">Employee Details</button>
     <button data-tab="cameras">Cameras</button>
     <button data-tab="enrollment">Enrollment</button>
-    <button data-tab="attendance">Attendance</button>
     <button data-tab="unknowns">Unknown Review</button>
     <button data-tab="settings">Settings</button>
   </nav>
 
   <main>
-    <section id="tab-employees" class="tab active">
+    <section id="tab-attendance" class="tab active">
+      <div class="card">
+        <div class="row-between wrap">
+          <h2>Attendance Dashboard</h2>
+          <div class="controls">
+            <label>Date <input type="date" id="eventsDate" /></label>
+            <button id="loadEventsBtn">Load</button>
+            <button id="refreshTodayBtn" type="button">Refresh Today</button>
+            <button id="exportCsvBtn">Export CSV</button>
+            <label><input type="checkbox" id="attendanceAutoRefresh" checked /> Auto Refresh (5s)</label>
+          </div>
+        </div>
+        <div class="row-between wrap">
+          <div class="controls">
+            <label>Today's Attendance Time (UTC) <input type="time" id="todayAttendanceTimeInput" step="60" /></label>
+            <button id="saveTodayAttendanceTimeBtn" type="button">Save Today Time</button>
+            <button id="clearTodayAttendanceTimeBtn" type="button">Use Standard</button>
+          </div>
+          <div id="attendanceTimeInfo" class="muted"></div>
+        </div>
+        <p class="hint">Today list includes recognized employees and unknown detections. Click image thumbnail to open full picture.</p>
+        <div class="row-between wrap">
+          <h3 id="attendanceSummaryTitle">Today's Check-in List</h3>
+          <div class="controls">
+            <label>Sort By
+              <select id="attendanceSummarySortBy">
+                <option value="time">Time</option>
+                <option value="name">Name</option>
+              </select>
+            </label>
+            <label>Order
+              <select id="attendanceSummarySortDir">
+                <option value="asc">Asc</option>
+                <option value="desc">Desc</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <table id="attendanceSummaryTable">
+          <thead>
+            <tr>
+              <th>Name</th><th>Code</th><th>Entrance Time (UTC)</th><th>Method</th><th>Confidence</th><th>Status</th><th>Picture</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <div class="row-between wrap">
+          <h2>Raw Events (Selected Date)</h2>
+        </div>
+        <table id="eventsTable">
+          <thead>
+            <tr>
+              <th>ID</th><th>Time (UTC)</th><th>Employee</th><th>Code</th><th>Method</th><th>Conf</th><th>Camera</th><th>Track</th><th>Image</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="tab-employees" class="tab">
       <div class="card">
         <h2>Add Employee</h2>
         <form id="employeeForm" class="grid-form">
@@ -211,59 +273,6 @@
       </div>
     </section>
 
-    <section id="tab-attendance" class="tab">
-      <div class="card">
-        <div class="row-between wrap">
-          <h2>Attendance Dashboard</h2>
-          <div class="controls">
-            <label>Date <input type="date" id="eventsDate" /></label>
-            <button id="loadEventsBtn">Load</button>
-            <button id="refreshTodayBtn" type="button">Refresh Today</button>
-            <button id="exportCsvBtn">Export CSV</button>
-          </div>
-        </div>
-        <p class="hint">Daily summary table shows all employees and their first entrance time for the selected date (today by default).</p>
-        <div class="row-between wrap">
-          <h3 id="attendanceSummaryTitle">Employee Entrance Summary</h3>
-          <div class="controls">
-            <label>Sort By
-              <select id="attendanceSummarySortBy">
-                <option value="name">Name</option>
-                <option value="time">Time</option>
-              </select>
-            </label>
-            <label>Order
-              <select id="attendanceSummarySortDir">
-                <option value="asc">Asc</option>
-                <option value="desc">Desc</option>
-              </select>
-            </label>
-          </div>
-        </div>
-        <table id="attendanceSummaryTable">
-          <thead>
-            <tr>
-              <th>Name</th><th>Code</th><th>Entrance Time (UTC)</th><th>Method</th><th>Confidence</th><th>Status</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
-      <div class="card">
-        <div class="row-between wrap">
-          <h2>Raw Events (Selected Date)</h2>
-        </div>
-        <table id="eventsTable">
-          <thead>
-            <tr>
-              <th>ID</th><th>Time (UTC)</th><th>Employee</th><th>Code</th><th>Method</th><th>Conf</th><th>Camera</th><th>Track</th><th>Image</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </section>
-
     <section id="tab-unknowns" class="tab">
       <div class="card">
         <div class="row-between wrap">
@@ -293,6 +302,7 @@
         <form id="settingsForm" class="grid-form">
           <label>Face Threshold <input type="number" step="0.01" name="face_threshold" /></label>
           <label>ReID Threshold <input type="number" step="0.01" name="reid_threshold" /></label>
+          <label>Standard Attendance Time (UTC) <input type="time" name="standard_attendance_time" /></label>
           <label>Morning Start <input type="time" name="morning_window_start" /></label>
           <label>Morning End <input type="time" name="morning_window_end" /></label>
           <label>Snapshot Retention Days <input type="number" min="0" name="snapshot_retention_days" /></label>

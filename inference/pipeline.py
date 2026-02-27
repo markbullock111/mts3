@@ -29,6 +29,7 @@ class TrackMemory:
     last_seen_ts: float
     last_center: tuple[float, float] | None = None
     current_center: tuple[float, float] | None = None
+    current_bbox: tuple[float, float, float, float] | None = None
     face_buffer: FaceTrackBuffer = field(default_factory=lambda: FaceTrackBuffer(max_items=12))
     body_buffer: BodyTrackBuffer = field(default_factory=lambda: BodyTrackBuffer(max_items=8))
     crossed: bool = False
@@ -67,8 +68,8 @@ class AttendancePipeline:
         self.show = show
         self.save_snapshots = cfg.inference.save_snapshots_default if save_snapshots is None else bool(save_snapshots)
         self.snapshot_dir = cfg.repo_root / cfg.inference.snapshot_dir
-        if self.save_snapshots:
-            self.snapshot_dir.mkdir(parents=True, exist_ok=True)
+        # Event snapshots are used by attendance UI thumbnails.
+        self.snapshot_dir.mkdir(parents=True, exist_ok=True)
         self.enroll_employee_id = enroll_employee_id
         self.enroll_kind = enroll_kind
         self._last_enroll_upload = 0.0
@@ -262,6 +263,7 @@ class AttendancePipeline:
             mem.last_seen_ts = now_ts
             mem.last_center = mem.current_center
             mem.current_center = tr.center
+            mem.current_bbox = tr.bbox
 
             person_crop = self._crop(frame, tr.bbox)
             if person_crop.size == 0:
@@ -401,9 +403,8 @@ class AttendancePipeline:
                     mem.finalized = True
                     continue
 
-            snap_path = None
-            if self.save_snapshots:
-                snap_path = self._save_snapshot(frame, trk_id, method, event_ts)
+            # Always store person-crop snapshot for attendance review.
+            snap_path = self._save_snapshot(frame, trk_id, method, event_ts, mem.current_bbox)
 
             payload = {
                 "employee_id": employee_id,
@@ -436,13 +437,23 @@ class AttendancePipeline:
                     print(f"[events] failed to post track={trk_id} attempt={mem.post_attempts}: {err_msg}")
                 mem.last_post_error = err_msg
 
-    def _save_snapshot(self, frame: np.ndarray, track_id: int, method: str, ts: datetime) -> str | None:
+    def _save_snapshot(
+        self,
+        frame: np.ndarray,
+        track_id: int,
+        method: str,
+        ts: datetime,
+        bbox: tuple[float, float, float, float] | None,
+    ) -> str | None:
         try:
             day_dir = self.snapshot_dir / ts.strftime("%Y-%m-%d")
             day_dir.mkdir(parents=True, exist_ok=True)
             fname = f"{ts.strftime('%H%M%S')}_{self.camera_id}_{track_id}_{method}.jpg"
             path = day_dir / fname
-            cv2.imwrite(str(path), frame)
+            crop = self._crop(frame, bbox) if bbox is not None else np.empty((0, 0, 3), dtype=np.uint8)
+            if crop.size == 0:
+                return None
+            cv2.imwrite(str(path), crop)
             return str(path)
         except Exception:
             return None

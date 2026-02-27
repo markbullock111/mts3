@@ -7,6 +7,15 @@ const state = {
   cameras: [],
   employeesSearchQuery: '',
   attendanceSummaryRows: [],
+  attendanceSelectedDate: '',
+  attendanceTargetTime: '09:00',
+  attendancePolicy: {
+    standardTime: '09:00',
+    overrideDate: '',
+    overrideTime: '',
+  },
+  attendanceLoading: false,
+  attendanceAutoTimer: null,
 };
 
 function todayStr() {
@@ -29,6 +38,42 @@ function asIsoOrEmpty(value) {
   } catch {
     return String(value);
   }
+}
+
+function normalizeTimeHHMM(value, fallback = '09:00') {
+  const raw = String(value ?? '').trim();
+  const m = raw.match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return fallback;
+  const hh = Number(m[1]);
+  const mm = Number(m[2]);
+  if (!Number.isFinite(hh) || !Number.isFinite(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59) return fallback;
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+}
+
+function targetUtcMs(dateStr, hhmm) {
+  const d = String(dateStr || '').trim();
+  const t = normalizeTimeHHMM(hhmm, '');
+  if (!d || !t) return Number.NaN;
+  const ts = Date.parse(`${d}T${t}:00Z`);
+  return Number.isFinite(ts) ? ts : Number.NaN;
+}
+
+function getEffectiveAttendanceTimeForDate(dateStr) {
+  const p = state.attendancePolicy || {};
+  const standard = normalizeTimeHHMM(p.standardTime, '09:00');
+  if (String(p.overrideDate || '') === String(dateStr || '') && String(p.overrideTime || '').trim()) {
+    return normalizeTimeHHMM(p.overrideTime, standard);
+  }
+  return standard;
+}
+
+function refreshAttendanceTimeInfo(dateStr) {
+  const info = $('#attendanceTimeInfo');
+  if (!info) return;
+  const standard = normalizeTimeHHMM(state.attendancePolicy?.standardTime, '09:00');
+  const target = getEffectiveAttendanceTimeForDate(dateStr);
+  const usingOverride = String(state.attendancePolicy?.overrideDate || '') === String(dateStr || '') && !!state.attendancePolicy?.overrideTime;
+  info.textContent = `Standard ${standard} UTC | Effective ${target} UTC${usingOverride ? ' (today override)' : ''}`;
 }
 
 function normalizeEmployeePayload(form, { includeCode = false } = {}) {
@@ -96,6 +141,12 @@ function eventImageLink(r) {
   return `<a class="image-link" target="_blank" href="${escapeHtml(url)}">open</a>`;
 }
 
+function eventImageThumb(r, label = 'snapshot') {
+  const url = r.image_url || (r.image_path ? `file:///${String(r.image_path).replaceAll('\\', '/')}` : '');
+  if (!url) return '<span class="muted">-</span>';
+  return `<a class="image-link image-thumb-link" target="_blank" href="${escapeHtml(url)}"><img class="event-thumb" src="${escapeHtml(url)}" alt="${escapeHtml(label)}" loading="lazy" /></a>`;
+}
+
 function eventRow(r) {
   const time = asIsoOrEmpty(r.ts);
   return `
@@ -108,7 +159,7 @@ function eventRow(r) {
       <td>${Number(r.confidence || 0).toFixed(3)}</td>
       <td>${escapeHtml(r.camera_id || '')}</td>
       <td>${escapeHtml(r.track_uid || '')}</td>
-      <td>${eventImageLink(r)}</td>
+      <td>${eventImageThumb(r, `${r.employee_name || 'unknown'} event`)}</td>
     </tr>`;
 }
 
@@ -450,37 +501,76 @@ function bindCameras() {
 }
 
 async function loadEvents() {
+  if (state.attendanceLoading) return;
+  state.attendanceLoading = true;
   const date = $('#eventsDate').value;
-  const rows = await api(`/events?date=${date}`);
-  renderTableRows($('#eventsTable tbody'), rows.map(eventRow).join(''));
-  await renderAttendanceSummary(rows, date);
+  try {
+    const rows = await api(`/events?date=${date}`);
+    renderTableRows($('#eventsTable tbody'), rows.map(eventRow).join(''));
+    await renderAttendanceSummary(rows, date);
+  } finally {
+    state.attendanceLoading = false;
+  }
 }
 
 function buildAttendanceSummaryRows(employees, events) {
+  const employeeById = new Map((employees || []).map(e => [Number(e.id), e]));
   const earliestByEmployee = new Map();
+  const unknownRows = [];
   for (const evt of events || []) {
-    if (!evt || evt.employee_id == null) continue;
+    if (!evt) continue;
+    if (evt.employee_id == null || evt.method === 'unknown') {
+      unknownRows.push(evt);
+      continue;
+    }
     const empId = Number(evt.employee_id);
-    if (!Number.isFinite(empId)) continue;
+    if (!Number.isFinite(empId)) {
+      unknownRows.push(evt);
+      continue;
+    }
     const existing = earliestByEmployee.get(empId);
-    const evtTime = new Date(evt.ts);
-    if (!existing || evtTime < new Date(existing.ts)) {
+    const evtTimeMs = new Date(evt.ts).getTime();
+    if (!existing || evtTimeMs < new Date(existing.ts).getTime()) {
       earliestByEmployee.set(empId, evt);
     }
   }
 
-  return (employees || []).map(emp => {
-    const evt = earliestByEmployee.get(Number(emp.id));
-    return {
-      employee_id: emp.id,
-      full_name: emp.full_name || '',
-      employee_code: emp.employee_code || '',
-      status: emp.status || '',
-      entrance_ts: evt?.ts || null,
-      method: evt?.method || '',
-      confidence: evt?.confidence ?? null,
-    };
+  const rows = [];
+  for (const [empId, evt] of earliestByEmployee.entries()) {
+    const emp = employeeById.get(empId);
+    rows.push({
+      row_key: `emp-${empId}`,
+      employee_id: empId,
+      full_name: emp?.full_name || evt.employee_name || `Employee ${empId}`,
+      employee_code: emp?.employee_code || evt.employee_code || '',
+      status: emp?.status || '',
+      entrance_ts: evt.ts || null,
+      method: evt.method || '',
+      confidence: evt.confidence ?? null,
+      image_url: evt.image_url || null,
+      image_path: evt.image_path || null,
+      is_unknown: false,
+    });
+  }
+
+  unknownRows.sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime());
+  unknownRows.forEach((evt) => {
+    rows.push({
+      row_key: `unknown-${evt.id || evt.track_uid || Math.random()}`,
+      employee_id: null,
+      full_name: 'UNKNOWN',
+      employee_code: '',
+      status: 'unknown',
+      entrance_ts: evt.ts || null,
+      method: evt.method || 'unknown',
+      confidence: evt.confidence ?? null,
+      image_url: evt.image_url || null,
+      image_path: evt.image_path || null,
+      is_unknown: true,
+    });
   });
+
+  return rows;
 }
 
 function sortAttendanceSummaryRows(rows, sortBy, sortDir) {
@@ -509,36 +599,60 @@ function sortAttendanceSummaryRows(rows, sortBy, sortDir) {
 }
 
 function renderAttendanceSummaryTable() {
-  const sortBy = $('#attendanceSummarySortBy')?.value || 'name';
+  const sortBy = $('#attendanceSummarySortBy')?.value || 'time';
   const sortDir = $('#attendanceSummarySortDir')?.value || 'asc';
   const rows = sortAttendanceSummaryRows(state.attendanceSummaryRows || [], sortBy, sortDir);
+  const dateStr = String(state.attendanceSelectedDate || todayStr());
+  const target = normalizeTimeHHMM(state.attendanceTargetTime, '09:00');
+  const targetMs = targetUtcMs(dateStr, target);
   renderTableRows(
     $('#attendanceSummaryTable tbody'),
     rows.map(r => `
       <tr>
         <td>${escapeHtml(r.full_name)}</td>
         <td>${escapeHtml(r.employee_code)}</td>
-        <td>${r.entrance_ts ? escapeHtml(asIsoOrEmpty(r.entrance_ts)) : '<span class="muted">Not checked in</span>'}</td>
+        <td>${
+          r.entrance_ts
+            ? (() => {
+                const enteredMs = new Date(r.entrance_ts).getTime();
+                const cls = Number.isFinite(enteredMs) && Number.isFinite(targetMs) && enteredMs <= targetMs
+                  ? 'attendance-time-on'
+                  : 'attendance-time-late';
+                return `<span class="${cls}">${escapeHtml(asIsoOrEmpty(r.entrance_ts))}</span>`;
+              })()
+            : '<span class="muted">Not checked in</span>'
+        }</td>
         <td>${escapeHtml(r.method || '')}</td>
         <td>${r.confidence == null ? '' : Number(r.confidence).toFixed(3)}</td>
         <td>${escapeHtml(r.status || '')}</td>
+        <td>${eventImageThumb(r, `${r.full_name || 'event'} snapshot`)}</td>
       </tr>`).join('')
   );
 }
 
 async function renderAttendanceSummary(events, dateStr) {
   const employees = await ensureEmployeesLoaded();
+  state.attendanceSelectedDate = String(dateStr || todayStr());
+  state.attendanceTargetTime = getEffectiveAttendanceTimeForDate(state.attendanceSelectedDate);
   state.attendanceSummaryRows = buildAttendanceSummaryRows(employees, events);
   const title = $('#attendanceSummaryTitle');
   if (title) {
     const today = todayStr();
-    title.textContent = dateStr === today ? `Today's Entrance Summary (${dateStr})` : `Entrance Summary (${dateStr})`;
+    const target = state.attendanceTargetTime;
+    title.textContent = dateStr === today
+      ? `Today's Check-in List (${dateStr}) | Target ${target} UTC`
+      : `Check-in List (${dateStr}) | Target ${target} UTC`;
   }
+  refreshAttendanceTimeInfo(state.attendanceSelectedDate);
   renderAttendanceSummaryTable();
 }
 
 function bindAttendance() {
   $('#eventsDate').value = todayStr();
+  const todayInput = $('#todayAttendanceTimeInput');
+  if (todayInput) {
+    todayInput.value = normalizeTimeHHMM(state.attendancePolicy?.standardTime, '09:00');
+  }
   $('#loadEventsBtn').addEventListener('click', () => loadEvents().catch(err => alert(err.message)));
   $('#refreshTodayBtn').addEventListener('click', async () => {
     $('#eventsDate').value = todayStr();
@@ -548,8 +662,78 @@ function bindAttendance() {
     const date = $('#eventsDate').value;
     window.location.href = `/reports/daily.csv?date=${date}`;
   });
+  $('#saveTodayAttendanceTimeBtn').addEventListener('click', async () => {
+    const today = todayStr();
+    const val = normalizeTimeHHMM($('#todayAttendanceTimeInput')?.value, '');
+    if (!val) {
+      alert('Enter a valid time (HH:MM)');
+      return;
+    }
+    try {
+      await api('/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          values: {
+            attendance_today_override_date: today,
+            attendance_today_override_time: val,
+          },
+        }),
+      });
+      state.attendancePolicy.overrideDate = today;
+      state.attendancePolicy.overrideTime = val;
+      state.attendanceTargetTime = getEffectiveAttendanceTimeForDate(state.attendanceSelectedDate || today);
+      refreshAttendanceTimeInfo(state.attendanceSelectedDate || today);
+      renderAttendanceSummaryTable();
+      if ($('#eventsDate').value === today) {
+        await loadEvents().catch(() => {});
+      }
+    } catch (err) {
+      alert(`Save today's attendance time failed: ${err.message}`);
+    }
+  });
+  $('#clearTodayAttendanceTimeBtn').addEventListener('click', async () => {
+    try {
+      await api('/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          values: {
+            attendance_today_override_date: '',
+            attendance_today_override_time: '',
+          },
+        }),
+      });
+      state.attendancePolicy.overrideDate = '';
+      state.attendancePolicy.overrideTime = '';
+      if ($('#todayAttendanceTimeInput')) {
+        $('#todayAttendanceTimeInput').value = normalizeTimeHHMM(state.attendancePolicy.standardTime, '09:00');
+      }
+      state.attendanceTargetTime = getEffectiveAttendanceTimeForDate(state.attendanceSelectedDate || todayStr());
+      refreshAttendanceTimeInfo(state.attendanceSelectedDate || todayStr());
+      renderAttendanceSummaryTable();
+    } catch (err) {
+      alert(`Reset to standard attendance time failed: ${err.message}`);
+    }
+  });
   $('#attendanceSummarySortBy').addEventListener('change', () => renderAttendanceSummaryTable());
   $('#attendanceSummarySortDir').addEventListener('change', () => renderAttendanceSummaryTable());
+
+  const autoRefreshCheckbox = $('#attendanceAutoRefresh');
+  const startAutoRefresh = () => {
+    if (state.attendanceAutoTimer) {
+      clearInterval(state.attendanceAutoTimer);
+      state.attendanceAutoTimer = null;
+    }
+    if (!autoRefreshCheckbox?.checked) return;
+    state.attendanceAutoTimer = window.setInterval(async () => {
+      if (!$('#tab-attendance')?.classList.contains('active')) return;
+      if ($('#eventsDate')?.value !== todayStr()) return;
+      await loadEvents().catch(() => {});
+    }, 5000);
+  };
+  autoRefreshCheckbox?.addEventListener('change', startAutoRefresh);
+  startAutoRefresh();
 }
 
 async function loadUnknowns() {
@@ -796,15 +980,32 @@ function bindEmployeeDetails() {
 async function loadSettings() {
   const data = await api('/settings');
   const v = data.values || {};
+  state.attendancePolicy.standardTime = normalizeTimeHHMM(v.standard_attendance_time, '09:00');
+  state.attendancePolicy.overrideDate = String(v.attendance_today_override_date || '');
+  state.attendancePolicy.overrideTime = normalizeTimeHHMM(v.attendance_today_override_time, '');
+
   const form = $('#settingsForm');
   form.face_threshold.value = v.face_threshold ?? '';
   form.reid_threshold.value = v.reid_threshold ?? '';
+  form.standard_attendance_time.value = state.attendancePolicy.standardTime;
   form.morning_window_start.value = v.morning_window_start ?? '';
   form.morning_window_end.value = v.morning_window_end ?? '';
   form.snapshot_retention_days.value = v.snapshot_retention_days ?? '';
   form.save_snapshots_default.value = String(v.save_snapshots_default ?? false);
   form.roi_polygon.value = JSON.stringify(v.roi_polygon ?? [], null, 2);
   form.entry_line.value = JSON.stringify(v.entry_line ?? {}, null, 2);
+  const selectedDate = $('#eventsDate')?.value || todayStr();
+  const today = todayStr();
+  const effectiveToday = getEffectiveAttendanceTimeForDate(today);
+  if ($('#todayAttendanceTimeInput')) {
+    $('#todayAttendanceTimeInput').value = String(state.attendancePolicy.overrideDate || '') === today && state.attendancePolicy.overrideTime
+      ? state.attendancePolicy.overrideTime
+      : effectiveToday;
+  }
+  state.attendanceSelectedDate = selectedDate;
+  state.attendanceTargetTime = getEffectiveAttendanceTimeForDate(selectedDate);
+  refreshAttendanceTimeInfo(selectedDate);
+  renderAttendanceSummaryTable();
   $('#settingsResult').textContent = JSON.stringify(v, null, 2);
 }
 
@@ -816,6 +1017,7 @@ function bindSettings() {
     const values = {
       face_threshold: Number(f.face_threshold.value),
       reid_threshold: Number(f.reid_threshold.value),
+      standard_attendance_time: normalizeTimeHHMM(f.standard_attendance_time.value, '09:00'),
       morning_window_start: f.morning_window_start.value,
       morning_window_end: f.morning_window_end.value,
       snapshot_retention_days: Number(f.snapshot_retention_days.value),
